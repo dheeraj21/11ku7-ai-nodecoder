@@ -37,11 +37,19 @@ Node.js 18+
 ```bash
 npm install -g 11ku7-ai-nodecoder
 ```
-after installing run directly with command:
+once installed set up api keys in a .env file in current directory with:
+
+```bash
+GEMINI_API_KEY="your_gemini_api_key"
+OPENAI_API_KEY="your_openai_api_key"
+```
+and finally run with command:
 
 ```bash
 nodecoder
 ```
+
+
 
 **OR**
 

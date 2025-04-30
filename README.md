@@ -37,6 +37,11 @@ Node.js 18+
 ```bash
 npm install -g 11ku7-ai-nodecoder
 ```
+after installing run directly with command:
+
+```bash
+nodecoder
+```
 
 **OR**
 

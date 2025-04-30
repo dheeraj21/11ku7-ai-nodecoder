@@ -6,14 +6,20 @@ A Shell-based AI coding assistant for generating code, web apps, creating, refac
 
 **Official Repository** : https://github.com/dheeraj21/11ku7-ai-nodecoder
 
+## Software Requirements :
+
+Node.js 18+
+
+**OS Supported:** Linux, Windows through WSL, Termux (Android)
+
 ## Features
 
 #### Coding & Web Apps
 - **Code Mode**: Generate and edit code snippets in various languages.
-- **Webapp Mode**: Create single-file HTML web apps with Tailwind CSS and JavaScript.
+- **Webapp Mode**: Create and edit single-file HTML web apps with Tailwind CSS and JavaScript.
 
 #### Creating Codebases, Refactoring Codebases, Querying codebases
-- **Shell Mode**: Create Entire Codebases with Multiple files using shell mode.
+- **Shell Mode**: Create Entire Codebases with Multiple files with AI-driven plans using shell mode.
 - **EditDir Mode**: Modify Entire Codebases with multiple files in a directory with AI-driven plans.
 - **AskDir Mode**: Querying project codebases without editing.
 
@@ -139,15 +145,15 @@ node index.js
 
   **REACT: SYNERGIZING REASONING AND ACTING IN LANGUAGE MODELS** [here](https://arxiv.org/pdf/2210.03629) 
 
-  This research paper provided valuable insights into building agents, which has informed the design and implementation of the `Agent` class and specialized agents within this project. I appreciate all authors 
+  This research paper provided valuable insights into building agents, which has informed the design and implementation of specialized agents within this project. I appreciate all authors 
   for sharing their knowledge and contributing to the understanding of agent-based AI systems.
 
 
-*  The concept of use of ingestion of file structure of whole repository for creating /digest mode of this project was taken from the source code of this open source project 
+*  /digest mode of this project is inspired by this open source project 
 
    **cyclotruc/gitingest** [here](https://github.com/cyclotruc/gitingest)
 
-   This repository's source code provided an important base for creating, modifying & Contexting same file structure in /shell mode, /editdir & /askdir mode respectievely of 11ku7-ai-nodecoder. 
+   This repository's source code provided an important base for creating, modifying & creating context in /shell mode, /editdir & /askdir mode
 
 
   

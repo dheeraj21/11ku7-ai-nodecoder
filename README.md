@@ -32,6 +32,14 @@ Node.js 18+
 #### Speciality
 - **Persistent Chat**: Stores conversations in markdown for unlimited output length.
 
+
+## Installation
+```bash
+npm install -g 11ku7-ai-nodecoder
+```
+
+**OR**
+
 ### Clone the repository
 ```bash
 git clone https://github.com/dheeraj21/11ku7-ai-nodecoder.git

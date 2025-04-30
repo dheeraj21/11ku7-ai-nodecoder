@@ -140,20 +140,10 @@ node index.js
 
 ### References
 
-* The concept of Agents, as implemented in this AI coder for creating /code and /webapp mode, is inspired by and builds upon the principles of modular AI design and agent-based systems. Specifically, the approach to creating agents from scratch, 
-  without relying on LLM frameworks, is acknowledged to be influenced by the ideas presented in the following Research paper:
+- **ReAct: Synergizing Reasoning And Acting in Language Models** [here](https://arxiv.org/pdf/2210.03629) 
 
-  **REACT: SYNERGIZING REASONING AND ACTING IN LANGUAGE MODELS** [here](https://arxiv.org/pdf/2210.03629) 
+- **cyclotruc/gitingest** [here](https://github.com/cyclotruc/gitingest)
 
-  This research paper provided valuable insights into building agents, which has informed the design and implementation of specialized agents within this project. I appreciate all authors 
-  for sharing their knowledge and contributing to the understanding of agent-based AI systems.
-
-
-*  /digest mode of this project is inspired by this open source project 
-
-   **cyclotruc/gitingest** [here](https://github.com/cyclotruc/gitingest)
-
-   This repository's source code provided an important base for creating, modifying & creating context in /shell mode, /editdir & /askdir mode
-
+  
 
   

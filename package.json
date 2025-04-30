@@ -1,0 +1,36 @@
+{
+  "name": "11ku7-ai-nodecoder",
+  "version": "1.0.0",
+  "main": "index.js",
+  "bin": {
+    "nodecoder": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["ai", "coding", "shell", "node", "cli"],
+  "author": "Dheeraj",
+  "license": "MIT",
+  "description": "A shell-based AI coding assistant using Google Generative AI or OpenAI APIs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dheeraj21/11ku7-ai-nodecoder.git"
+  },
+  "homepage": "https://github.com/dheeraj21/11ku7-ai-nodecoder#readme",
+  "files": [
+    "index.js",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@google/generative-ai": "^0.24.0",
+    "axios": "^1.8.4",
+    "clipboardy": "^3.0.0",
+    "dotenv": "^16.4.7",
+    "highlight.js": "^11.11.1",
+    "marked": "^15.0.8",
+    "marked-terminal": "^7.3.0",
+    "neo-blessed": "^0.2.0",
+    "openai": "^4.93.0"
+  }
+}

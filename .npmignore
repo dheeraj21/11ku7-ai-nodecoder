@@ -1,0 +1,6 @@
+.env
+.temp-chat.md
+node_modules/
+*.log
+temp-clipboard.txt
+digest_output.txt

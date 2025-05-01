@@ -2,7 +2,7 @@
 
 A Shell-based AI coding assistant for generating code, web apps, creating, refactoring & querying codebases using Google Generative AI or OpenAI Compatible APIs.
 
-**Version :  1.0.2**
+**Version :  1.0.1**
 
 **Official Repository** : https://github.com/dheeraj21/11ku7-ai-nodecoder
 

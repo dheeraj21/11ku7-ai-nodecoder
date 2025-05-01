@@ -1,6 +1,6 @@
 {
   "name": "11ku7-ai-nodecoder",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "index.js",
   "bin": {
     "nodecoder": "./index.js"
@@ -9,7 +9,13 @@
     "start": "node index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["ai", "coding", "shell", "node", "cli"],
+  "keywords": [
+    "ai",
+    "coding",
+    "shell",
+    "node",
+    "cli"
+  ],
   "author": "Dheeraj",
   "license": "MIT",
   "description": "A shell-based AI coding assistant using Google Generative AI or OpenAI APIs",

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-//11ku7-ai-nodecoder (version 1.0.3) (latest iteration == 18R) 
+//11ku7-ai-nodecoder (version 1.0.4) (latest iteration == 18S) 
 require('dotenv').config();
 const blessed = require('neo-blessed');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -65,7 +65,7 @@ marked.setOptions({
 // Create terminal screen
 const screen = blessed.screen({
   smartCSR: true,
-  title: '11ku7-ai-nodecoder (version 1.0.3)',
+  title: '11ku7-ai-nodecoder (version 1.0.4)',
   fullUnicode: false,
   autoPadding: true,
 });
@@ -260,7 +260,7 @@ const statusBar = blessed.text({
   left: 0,
   width: '100%',
   height: 4,
-  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.3){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
+  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.4){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
   tags: true,
   style: { fg: '#d4d4d4', bg: 'black' },
   hidden: true,
@@ -903,7 +903,7 @@ function updateStatusBar() {
   else if (editDirMode) activeMode = 'editdir';
   else if (askDirMode) activeMode = 'askdir';
   statusBar.setContent(
-    `{green-fg}11ku7-ai-nodecoder (version 1.0.3){/}\n` +
+    `{green-fg}11ku7-ai-nodecoder (version 1.0.4){/}\n` +
     `{gray-fg}cwd: ${currentWorkingDir}\n/help for help, mode: ${activeMode}\n` +
     `{#1E90FF-fg}Researched {/}{#1E90FF-fg}& {/}{#1E90FF-fg}developed {/}{#1E90FF-fg}in {/}{#FF9933-fg}In{/}{#FFFFFF-fg}di{/}{#138808-fg}a {/}`
   );
@@ -1415,11 +1415,11 @@ async function proposePlan(query, latestPlan = '') {
       'change directory', 'list', 'move', 'copy', 'remove', 'delete', 'make directory'
     ];
 
-    // Check if the query is a simple command (case-insensitive, short and direct match)
-    const isSimpleQuery = simpleCommands.some(cmd => {
+    // Check if the query is a simple command or has 5 or fewer words
+    const words = query.trim().split(/\s+/);
+    const isSimpleQuery = words.length <= 5 || simpleCommands.some(cmd => {
       const lowerQuery = query.trim().toLowerCase();
-      const words = lowerQuery.split(/\s+/);
-      return words.length <= 5 && (
+      return (
         lowerQuery.startsWith(cmd) ||
         lowerQuery === cmd ||
         lowerQuery.includes(` ${cmd} `) ||
@@ -1457,247 +1457,241 @@ async function proposePlan(query, latestPlan = '') {
       clearInterval(spinnerInterval);
       chatBox.deleteLine(lastLineIndex);
 
-      const codeBlockMatch = buffer.match(/```bash\n([\s\S]*?)```/);
-      if (codeBlockMatch) {
-        shellCommandsBuffer = codeBlockMatch[1].trim();
-        appendMessage('ai', `{green-fg}Shell commands generated successfully for "${query}". Ready to execute (y/n):{/}`, false);
-        await fs.appendFile(tempChatFile, `## AI\nShell commands generated for "${query}":\n\`\`\`bash\n${shellCommandsBuffer}\n\`\`\`\n\n`);
-        await executeShellCommand(shellCommandsBuffer);
+      // Extract commands from markdown code block
+      const codeBlockMatch = buffer.match(/```bash\n([\s\S]*?)\n```/);
+      const commands = codeBlockMatch ? codeBlockMatch[1].trim() : buffer;
+      if (commands) {
+        appendMessage('ai', `{green-fg}Generated commands for "${query}":{/}\n\`\`\`bash\n${commands}\n\`\`\``, false);
+        await executeShellCommand(commands);
       } else {
-        appendMessage('ai', `{red-fg}No valid shell commands generated for: ${query}{/}`, false);
+        appendMessage('ai', `{red-fg}No commands generated for "${query}".{/}`, false);
       }
-      return;
-    }
+    } else {
+      // For queries with more than 5 words, propose a plan
+      let plan = latestPlan;
+      let buffer = '';
+      let lastRenderedLength = 0;
 
-    const spinnerFrames = ['|', '/', '-', '\\'];
-    let spinnerIndex = 0;
-    chatBox.insertBottom(`{gray-fg}Generating plan ${spinnerFrames[spinnerIndex]}{/}`);
-    let lastLineIndex = chatBox.getLines().length - 1;
-    const spinnerInterval = setInterval(() => {
-      spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-      chatBox.setLine(lastLineIndex, `{gray-fg}Generating plan ${spinnerFrames[spinnerIndex]}{/}`);
-      screen.render();
-    }, 100);
+      if (!plan) {
+        const planPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". Propose a high-level plan to accomplish this task, outlining the steps or commands needed (e.g., creating directories, installing dependencies, updating files). Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. Ensure the plan aligns with the user's requirements and explicitly avoids Tailwind CSS or tailwind.config.js, using plain CSS or Bootstrap for any styling needs.`;
 
-    let plan = latestPlan;
-    let buffer = '';
-    let lastRenderedLength = 0;
+        const spinnerFrames = ['|', '/', '-', '\\'];
+        let spinnerIndex = 0;
+        chatBox.insertBottom(`{gray-fg}Generating plan ${spinnerFrames[spinnerIndex]}{/}`);
+        let lastLineIndex = chatBox.getLines().length - 1;
+        const spinnerInterval = setInterval(() => {
+          spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+          chatBox.setLine(lastLineIndex, `{gray-fg}Generating plan ${spinnerFrames[spinnerIndex]}{/}`);
+          screen.render();
+        }, 100);
 
-    if (!plan) {
-      const planPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested: "${query}". Propose a detailed, high-level plan to accomplish this task, focusing on the development process and components (e.g., backend setup, frontend development, API integration). Use a conversational style, starting with phrases like "Let's create..." or "We'll build..." to engage the user, and maintain a clear, approachable tone throughout (e.g., "Let's kick things off by setting up a Node.js backend with Express, then we'll whip up a React frontend with plain CSS or Bootstrap for styling..."). Explicitly avoid using Tailwind CSS or any Tailwind-related tools in the plan. Use alternative styling solutions like plain CSS or Bootstrap if styling is required. Do not include shell commands or low-level implementation details. Present the plan as a single, concise paragraph in markdown format, avoiding numbered lists or bullet points. Ensure the plan aligns with the user's requirements.`;
-      
-      if (currentProvider === 'Gemini') {
-        const result = await currentModel.generateContentStream(planPrompt);
-        for await (const chunk of result.stream) {
-          buffer += chunk.text();
-          if (buffer.length > lastRenderedLength) {
-            clearInterval(spinnerInterval);
-            const newContent = buffer.slice(lastRenderedLength);
-            const markedNewContent = marked(newContent);
-            chatBox.deleteLine(lastLineIndex);
-            chatBox.insertBottom(markedNewContent);
-            chatBox.setScrollPerc(100);
-            screen.render();
-            lastRenderedLength = buffer.length;
-            lastLineIndex = chatBox.getLines().length - 1;
+        if (currentProvider === 'Gemini') {
+          const result = await currentModel.generateContentStream(planPrompt);
+          for await (const chunk of result.stream) {
+            buffer += chunk.text();
+            if (buffer.length > lastRenderedLength) {
+              clearInterval(spinnerInterval);
+              const newContent = buffer.slice(lastRenderedLength);
+              const markedNewContent = marked(newContent);
+              chatBox.deleteLine(lastLineIndex);
+              chatBox.insertBottom(markedNewContent);
+              chatBox.setScrollPerc(100);
+              screen.render();
+              lastRenderedLength = buffer.length;
+              lastLineIndex = chatBox.getLines().length - 1;
+            }
+          }
+        } else if (currentProvider === 'OpenAI') {
+          const stream = await openAI.chat.completions.create({
+            model: currentModel,
+            messages: [{ role: 'system', content: planPrompt }, { role: 'user', content: query }],
+            stream: true,
+          });
+          for await (const chunk of stream) {
+            buffer += chunk.choices[0]?.delta?.content || '';
+            if (buffer.length > lastRenderedLength) {
+              clearInterval(spinnerInterval);
+              const newContent = buffer.slice(lastRenderedLength);
+              const markedNewContent = marked(newContent);
+              chatBox.deleteLine(lastLineIndex);
+              chatBox.insertBottom(markedNewContent);
+              chatBox.setScrollPerc(100);
+              screen.render();
+              lastRenderedLength = buffer.length;
+              lastLineIndex = chatBox.getLines().length - 1;
+            }
           }
         }
-        plan = buffer;
-      } else if (currentProvider === 'OpenAI') {
-        const stream = await openAI.chat.completions.create({
-          model: currentModel,
-          messages: [{ role: 'system', content: planPrompt }, { role: 'user', content: query }],
-          stream: true,
-        });
-        for await (const chunk of stream) {
-          buffer += chunk.choices[0]?.delta?.content || '';
-          if (buffer.length > lastRenderedLength) {
-            clearInterval(spinnerInterval);
-            const newContent = buffer.slice(lastRenderedLength);
-            const markedNewContent = marked(newContent);
-            chatBox.deleteLine(lastLineIndex);
-            chatBox.insertBottom(markedNewContent);
-            chatBox.setScrollPerc(100);
-            screen.render();
-            lastRenderedLength = buffer.length;
-            lastLineIndex = chatBox.getLines().length - 1;
-          }
+
+        clearInterval(spinnerInterval);
+        if (buffer.length > lastRenderedLength) {
+          const remainingContent = buffer.slice(lastRenderedLength);
+          const markedRemainingContent = marked(remainingContent);
+          chatBox.deleteLine(lastLineIndex);
+          chatBox.insertBottom(markedRemainingContent);
+          chatBox.setScrollPerc(100);
+          screen.render();
+          lastLineIndex = chatBox.getLines().length - 1;
+        } else {
+          chatBox.deleteLine(lastLineIndex);
         }
+
         plan = buffer;
       }
-    }
 
-    clearInterval(spinnerInterval);
-    if (buffer.length > lastRenderedLength) {
-      const remainingContent = buffer.slice(lastRenderedLength);
-      const markedRemainingContent = marked(remainingContent);
-      chatBox.deleteLine(lastLineIndex);
-      chatBox.insertBottom(markedRemainingContent);
-      chatBox.setScrollPerc(100);
-      screen.render();
-      lastLineIndex = chatBox.getLines().length - 1;
-    } else {
-      chatBox.deleteLine(lastLineIndex);
-    }
-
-    appendMessage('ai', `{green-fg}Proposed Plan for "${query}":{/}\n${plan}\n{yellow-fg}Approve this plan? (y/N/cancel):{/}`, false);
-    await fs.appendFile(tempChatFile, `## AI\nProposed Plan for "${query}":\n${plan}\n\n`);
-
-    inputBox.removeAllListeners('submit');
-
-    const consent = await new Promise((resolve) => {
-      const consentHandler = (response) => {
-        inputBox.removeListener('submit', consentHandler);
-        resolve(response.trim().toLowerCase());
-      };
-      inputBox.once('submit', consentHandler);
-    });
-
-    if (consent === 'y') {
-      chatBox.insertBottom(`{gray-fg}Generating shell commands ${spinnerFrames[spinnerIndex]}{/}`);
-      lastLineIndex = chatBox.getLines().length - 1;
-      const cmdSpinnerInterval = setInterval(() => {
-        spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-        chatBox.setLine(lastLineIndex, `{gray-fg}Generating shell commands ${spinnerFrames[spinnerIndex]}{/}`);
-        screen.render();
-      }, 100);
-
-      const commandPrompt = `You are a shell command generator for creating software projects. The user has approved the following plan for: "${query}":\n\n${plan}\n\nGenerate a sequence of shell commands to implement this plan. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. Explicitly avoid using Tailwind CSS, tailwind.config.js, or any Tailwind-related dependencies in the generated commands. Use alternative styling solutions (e.g., plain CSS, Bootstrap) if styling is required. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline. Ensure the commands are executable in sequence to set up the complete project.`;
-      buffer = '';
-
-      if (currentProvider === 'Gemini') {
-        const result = await currentModel.generateContent(commandPrompt);
-        buffer = result.response.text();
-      } else if (currentProvider === 'OpenAI') {
-        const response = await openAI.chat.completions.create({
-          model: currentModel,
-          messages: [{ role: 'system', content: commandPrompt }, { role: 'user', content: query }],
-          stream: false,
-        });
-        buffer = response.choices[0].message.content;
-      }
-
-      clearInterval(cmdSpinnerInterval);
-      chatBox.deleteLine(lastLineIndex);
-
-      const codeBlockMatch = buffer.match(/```bash\n([\s\S]*?)```/);
-      if (codeBlockMatch) {
-        shellCommandsBuffer = codeBlockMatch[1].trim();
-        appendMessage('ai', `{green-fg}Shell commands generated successfully for "${query}". Ready to execute (y/n):{/}`, false);
-        await fs.appendFile(tempChatFile, `## AI\nShell commands generated for "${query}":\n\`\`\`bash\n${shellCommandsBuffer}\n\`\`\`\n\n`);
-        await executeShellCommand(shellCommandsBuffer);
-      } else {
-        appendMessage('ai', `{red-fg}No valid shell commands generated for the approved plan.{/}`, false);
-      }
-    } else if (consent === 'cancel') {
-      appendMessage('ai', `{gray-fg}Project cancelled.{/}`, false);
-      inputBox.clearValue();
-      inputBox.focus();
-      screen.render();
-    } else {
-      appendMessage('ai', `{gray-fg}Please describe what needs to change in the proposed plan:{/}`, false);
-      inputBox.clearValue();
-      inputBox.setValue('');
-      inputBox.focus();
-      screen.render();
+      // Prompt user for execution choice
+      appendMessage('ai', `{green-fg}Proposed Plan for "${query}":{/}\n${plan}\n{yellow-fg}Execute this plan? [a]uto, [s]tep-by-step, [c]ancel:{/}`, false);
+      await fs.appendFile(tempChatFile, `## AI\nProposed Plan for "${query}":\n${plan}\n\n`);
 
       inputBox.removeAllListeners('submit');
 
-      const modification = await new Promise((resolve) => {
-        const modificationHandler = (response) => {
-          inputBox.removeListener('submit', modificationHandler);
-          resolve(response.trim());
+      const choice = await new Promise((resolve) => {
+        const choiceHandler = (response) => {
+          inputBox.removeListener('submit', choiceHandler);
+          resolve(response.trim().toLowerCase());
         };
-        inputBox.once('submit', modificationHandler);
+        inputBox.once('submit', choiceHandler);
       });
 
-      appendMessage('user', modification, false);
-      await fs.appendFile(tempChatFile, `## User\n${modification}\n\n`);
+      if (choice === 'a' || choice === 's') {
+        const commandPrompt = `You are a shell command generator. The user has approved the following plan for: "${query}":\n\n${plan}\n\nGenerate a sequence of shell commands to accomplish the task described in the plan. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. Explicitly avoid using Tailwind CSS, tailwind.config.js, or any Tailwind-related dependencies in the generated commands. Use alternative styling solutions (e.g., plain CSS, Bootstrap) if styling is required. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
 
-      inputBox.clearValue();
-      inputBox.focus();
-      screen.render();
+        const spinnerFrames = ['|', '/', '-', '\\'];
+        let spinnerIndex = 0;
+        chatBox.insertBottom(`{gray-fg}Generating commands ${spinnerFrames[spinnerIndex]}{/}`);
+        let lastLineIndex = chatBox.getLines().length - 1;
+        const cmdSpinnerInterval = setInterval(() => {
+          spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+          chatBox.setLine(lastLineIndex, `{gray-fg}Generating commands ${spinnerFrames[spinnerIndex]}{/}`);
+          screen.render();
+        }, 100);
 
-      const revisedPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested: "${query}". The current plan is: "${plan}". The user has provided the following modification: "${modification}". Revise the current plan to fully incorporate the user's modification, prioritizing the modification over any conflicting elements in the original request or current plan. Explicitly exclude any components contradicted by the modification (e.g., if the user says "use OpenAI API instead of Gemini," replace all references to Gemini API with OpenAI API and adjust related dependencies, such as using the OpenAI Python client instead of the Google Generative AI SDK). Explicitly avoid using Tailwind CSS or any Tailwind-related tools in the revised plan. Use alternative styling solutions like plain CSS or Bootstrap if styling is required. Use a conversational style, starting with phrases like "Let's update..." or "We'll tweak..." to engage the user, and maintain a clear, approachable tone throughout (e.g., "Let's swap in plain CSS for styling and get that Python client set up..."). Ensure the revised plan aligns with the original request where it does not conflict with the modification. Present the revised plan as a single, concise paragraph in markdown format, avoiding numbered lists or bullet points. Do not include shell commands or low-level implementation details. Ensure the revised plan is cohesive and directly reflects the user's modification.`;
-      buffer = '';
-      lastRenderedLength = 0;
+        buffer = '';
 
-      chatBox.insertBottom(`{gray-fg}Generating revised plan ${spinnerFrames[spinnerIndex]}{/}`);
-      lastLineIndex = chatBox.getLines().length - 1;
-      const newSpinnerInterval = setInterval(() => {
-        spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-        chatBox.setLine(lastLineIndex, `{gray-fg}Generating revised plan ${spinnerFrames[spinnerIndex]}{/}`);
-        screen.render();
-      }, 100);
-
-      if (currentProvider === 'Gemini') {
-        const result = await currentModel.generateContentStream(revisedPrompt);
-        for await (const chunk of result.stream) {
-          buffer += chunk.text();
-          if (buffer.length > lastRenderedLength) {
-            clearInterval(newSpinnerInterval);
-            const newContent = buffer.slice(lastRenderedLength);
-            const markedNewContent = marked(newContent);
-            chatBox.deleteLine(lastLineIndex);
-            chatBox.insertBottom(markedNewContent);
-            chatBox.setScrollPerc(100);
-            screen.render();
-            lastRenderedLength = buffer.length;
-            lastLineIndex = chatBox.getLines().length - 1;
-          }
+        if (currentProvider === 'Gemini') {
+          const result = await currentModel.generateContent(commandPrompt);
+          buffer = result.response.text();
+        } else if (currentProvider === 'OpenAI') {
+          const response = await openAI.chat.completions.create({
+            model: currentModel,
+            messages: [{ role: 'system', content: commandPrompt }, { role: 'user', content: query }],
+            stream: false,
+          });
+          buffer = response.choices[0].message.content;
         }
-      } else if (currentProvider === 'OpenAI') {
-        const stream = await openAI.chat.completions.create({
-          model: currentModel,
-          messages: [{ role: 'system', content: revisedPrompt }, { role: 'user', content: modification }],
-          stream: true,
-        });
-        for await (const chunk of stream) {
-          buffer += chunk.choices[0]?.delta?.content || '';
-          if (buffer.length > lastRenderedLength) {
-            clearInterval(newSpinnerInterval);
-            const newContent = buffer.slice(lastRenderedLength);
-            const markedNewContent = marked(newContent);
-            chatBox.deleteLine(lastLineIndex);
-            chatBox.insertBottom(markedNewContent);
-            chatBox.setScrollPerc(100);
-            screen.render();
-            lastRenderedLength = buffer.length;
-            lastLineIndex = chatBox.getLines().length - 1;
-          }
-        }
-      }
 
-      clearInterval(newSpinnerInterval);
-      if (buffer.length > lastRenderedLength) {
-        const remainingContent = buffer.slice(lastRenderedLength);
-        const markedRemainingContent = marked(remainingContent);
+        clearInterval(cmdSpinnerInterval);
         chatBox.deleteLine(lastLineIndex);
-        chatBox.insertBottom(markedRemainingContent);
-        chatBox.setScrollPerc(100);
-        screen.render();
+
+        const codeBlockMatch = buffer.match(/```bash\n([\s\S]*?)\n```/);
+        const commands = codeBlockMatch ? codeBlockMatch[1].trim() : buffer;
+        if (commands) {
+          appendMessage('ai', `{green-fg}Generated commands for "${query}":{/}\n\`\`\`bash\n${commands}\n\`\`\``, false);
+          await executeShellCommand(commands, choice === 'a');
+        } else {
+          appendMessage('ai', `{red-fg}No commands generated for "${query}".{/}`, false);
+        }
       } else {
-        chatBox.deleteLine(lastLineIndex);
+        appendMessage('ai', `{gray-fg}Please describe what needs to change in the proposed plan:{/}`, false);
+        inputBox.clearValue();
+        inputBox.setValue('');
+        inputBox.focus();
+        screen.render();
+
+        inputBox.removeAllListeners('submit');
+
+        const modification = await new Promise((resolve) => {
+          const modificationHandler = (response) => {
+            inputBox.removeListener('submit', modificationHandler);
+            resolve(response.trim());
+          };
+          inputBox.once('submit', modificationHandler);
+        });
+
+        appendMessage('user', modification, false);
+        await fs.appendFile(tempChatFile, `## User\n${modification}\n\n`);
+
+        inputBox.clearValue();
+        inputBox.focus();
+        screen.render();
+
+        const revisedPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". The current plan is: "${plan}". The user has provided the following modification to the plan: "${modification}". Revise the current plan to incorporate the modification, ensuring the revised plan aligns with the user's requirements and the modification. Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the revised plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. Ensure the plan explicitly avoids Tailwind CSS or tailwind.config.js, using plain CSS or Bootstrap for any styling needs.`;
+        buffer = '';
+        lastRenderedLength = 0;
+
+        const spinnerFrames = ['|', '/', '-', '\\'];
+        let spinnerIndex = 0;
+        chatBox.insertBottom(`{gray-fg}Generating revised plan ${spinnerFrames[spinnerIndex]}{/}`);
+        let lastLineIndex = chatBox.getLines().length - 1;
+        const newSpinnerInterval = setInterval(() => {
+          spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+          chatBox.setLine(lastLineIndex, `{gray-fg}Generating revised plan ${spinnerFrames[spinnerIndex]}{/}`);
+          screen.render();
+        }, 100);
+
+        if (currentProvider === 'Gemini') {
+          const result = await currentModel.generateContentStream(revisedPrompt);
+          for await (const chunk of result.stream) {
+            buffer += chunk.text();
+            if (buffer.length > lastRenderedLength) {
+              clearInterval(newSpinnerInterval);
+              const newContent = buffer.slice(lastRenderedLength);
+              const markedNewContent = marked(newContent);
+              chatBox.deleteLine(lastLineIndex);
+              chatBox.insertBottom(markedNewContent);
+              chatBox.setScrollPerc(100);
+              screen.render();
+              lastRenderedLength = buffer.length;
+              lastLineIndex = chatBox.getLines().length - 1;
+            }
+          }
+        } else if (currentProvider === 'OpenAI') {
+          const stream = await openAI.chat.completions.create({
+            model: currentModel,
+            messages: [{ role: 'system', content: revisedPrompt }, { role: 'user', content: modification }],
+            stream: true,
+          });
+          for await (const chunk of stream) {
+            buffer += chunk.choices[0]?.delta?.content || '';
+            if (buffer.length > lastRenderedLength) {
+              clearInterval(newSpinnerInterval);
+              const newContent = buffer.slice(lastRenderedLength);
+              const markedNewContent = marked(newContent);
+              chatBox.deleteLine(lastLineIndex);
+              chatBox.insertBottom(markedNewContent);
+              chatBox.setScrollPerc(100);
+              screen.render();
+              lastRenderedLength = buffer.length;
+              lastLineIndex = chatBox.getLines().length - 1;
+            }
+          }
+        }
+
+        clearInterval(newSpinnerInterval);
+        if (buffer.length > lastRenderedLength) {
+          const remainingContent = buffer.slice(lastRenderedLength);
+          const markedRemainingContent = marked(remainingContent);
+          chatBox.deleteLine(lastLineIndex);
+          chatBox.insertBottom(markedRemainingContent);
+          chatBox.setScrollPerc(100);
+          screen.render();
+        } else {
+          chatBox.deleteLine(lastLineIndex);
+        }
+
+        await proposePlan(query, buffer);
       }
-      latestPlan = buffer;
 
-      await proposePlan(query, latestPlan);
+      inputBox.removeAllListeners('submit');
+      inputBox.on('submit', handleInputSubmission);
     }
-
-    inputBox.removeAllListeners('submit');
-    inputBox.on('submit', handleInputSubmission);
   } catch (error) {
-    clearInterval(spinnerInterval);
-    chatBox.deleteLine(lastLineIndex);
     appendMessage('ai', `{red-fg}Error generating plan: ${error.message}{/}`, false);
-    inputBox.clearValue();
-    inputBox.focus();
-    screen.render();
-    inputBox.on('submit', handleInputSubmission);
   }
 }
 
-async function executeShellCommand(command) {
+async function executeShellCommand(command, autoExecute = false) {
+  // Ensure inputBox listeners are cleared at the start
   inputBox.removeAllListeners('submit');
 
   // Reset execution log for new command set
@@ -1753,44 +1747,72 @@ async function executeShellCommand(command) {
 
   let allSuccessful = true;
 
+  // Utility function to add a delay
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
   for (const cmd of commands) {
     const trimmedCmd = cmd.trim();
     if (!trimmedCmd) continue;
 
-    appendMessage('ai', `{yellow-fg}Execute this command? (y/n): ${trimmedCmd}{/}`, false);
-    inputBox.clearValue();
-    inputBox.setValue('');
-    inputBox.focus();
-    isShellPromptActive = true;
-    screen.render();
-
-    const consent = await new Promise((resolve) => {
-      const shellPromptHandler = (response) => {
-        inputBox.removeListener('submit', shellPromptHandler);
-        resolve(response.trim().toLowerCase());
-      };
-      inputBox.once('submit', shellPromptHandler);
-    });
-
-    if (consent !== 'y') {
-      appendMessage('ai', `{gray-fg}Command execution cancelled.{/}`, false);
-      shellCommandsExecutionLog.push({
-        command: trimmedCmd,
-        success: false,
-        stdout: '',
-        stderr: '',
-        error: 'Cancelled by user'
-      });
-      allSuccessful = false;
-      isShellPromptActive = false;
-      continue;
+    // Generate a narrative message based on the command
+    let narrative = '';
+    if (trimmedCmd.startsWith('cd ')) {
+      narrative = `Ok, let's change to the directory using \`${trimmedCmd}\`...`;
+    } else if (trimmedCmd.startsWith('mkdir ')) {
+      narrative = `Alright, let's create the directory with \`${trimmedCmd}\`...`;
+    } else if (trimmedCmd.startsWith('cat >')) {
+      narrative = `Now, let's create or update the file with \`${trimmedCmd.split('<<')[0].trim()}\`...`;
+    } else if (trimmedCmd.startsWith('npm ') || trimmedCmd.startsWith('yarn ') || trimmedCmd.startsWith('pnpm ')) {
+      narrative = `Time to install dependencies using \`${trimmedCmd}\`...`;
+    } else {
+      narrative = `Let's execute this command: \`${trimmedCmd}\`...`;
     }
+
+    // Display narrative message
+    appendMessage('ai', `{gray-fg}${narrative}{/}`, false);
+    screen.render();
+    await delay(100); // Brief delay for visibility
 
     let executionResult = { command: trimmedCmd, success: false, stdout: '', stderr: '', error: '' };
 
+    if (!autoExecute) {
+      // Step-by-step mode: prompt for consent
+      appendMessage('ai', `{yellow-fg}Execute this command? (y/n): ${trimmedCmd}{/}`, false);
+      inputBox.clearValue();
+      inputBox.setValue('');
+      inputBox.focus();
+      isShellPromptActive = true;
+      screen.render();
+
+      const consent = await new Promise((resolve) => {
+        const shellPromptHandler = (response) => {
+          inputBox.removeListener('submit', shellPromptHandler);
+          resolve(response.trim().toLowerCase());
+        };
+        inputBox.once('submit', shellPromptHandler);
+      });
+
+      isShellPromptActive = false;
+
+      if (consent !== 'y') {
+        appendMessage('ai', `{gray-fg}Command execution cancelled.{/}`, false);
+        executionResult = {
+          command: trimmedCmd,
+          success: false,
+          stdout: '',
+          stderr: '',
+          error: 'Cancelled by user'
+        };
+        shellCommandsExecutionLog.push(executionResult);
+        allSuccessful = false;
+        continue;
+      }
+    }
+
+    // Execute the command
     if (trimmedCmd.startsWith('cd ')) {
       const newDir = trimmedCmd.substring(3).trim();
-      const validation = await validateDirectoryPath(newDir); // Now asynchronous
+      const validation = await validateDirectoryPath(newDir);
       if (!validation.valid) {
         executionResult.error = validation.error;
         appendMessage('ai', `{red-fg}Error: ${executionResult.error}{/}`, false);
@@ -1815,43 +1837,66 @@ async function executeShellCommand(command) {
       screen.render();
 
       try {
-        const { stdout, stderr } = await new Promise((resolve, reject) => {
-          const child = exec(trimmedCmd, { cwd: currentWorkingDir, encoding: 'utf8', timeout: 30000 });
-          let stdout = '';
-          let stderr = '';
+        let execOptions = { cwd: currentWorkingDir, encoding: 'utf8', timeout: 30000 };
+        let commandToExecute = trimmedCmd;
 
-          child.stdout.on('data', (data) => {
-            stdout += data;
-          });
-
-          child.stderr.on('data', (data) => {
-            stderr += data;
-          });
-
-          child.on('close', (code) => {
-            if (code === 0) {
-              resolve({ stdout, stderr });
-            } else {
-              reject(new Error(`Command exited with code ${code}`));
+        if (trimmedCmd.startsWith('cat > tailwind.config.js <<')) {
+          const match = trimmedCmd.match(/^cat > tailwind\.config\.js << ['"]([^'"]+)['"]([\s\S]*?)\n\1$/m);
+          if (match) {
+            const content = match[2].trim();
+            const filePath = path.join(currentWorkingDir, 'tailwind.config.js');
+            try {
+              await fs.writeFile(filePath, content);
+              executionResult.success = true;
+              executionResult.stdout = `Created tailwind.config.js at ${filePath}`;
+              appendMessage('ai', `{green-fg}${executionResult.stdout}{/}`, false);
+              appendMessage('ai', `{green-fg}Command executed successfully.{/}`, false);
+            } catch (writeError) {
+              throw new Error(`Failed to write tailwind.config.js: ${writeError.message}`);
             }
+          } else {
+            throw new Error('Invalid tailwind.config.js command format: unable to parse heredoc content');
+          }
+        } else {
+          const { stdout, stderr } = await new Promise((resolve, reject) => {
+            const child = exec(commandToExecute, execOptions);
+            let stdout = '';
+            let stderr = '';
+
+            child.stdout.on('data', (data) => {
+              stdout += data;
+            });
+
+            child.stderr.on('data', (data) => {
+              stderr += data;
+            });
+
+            child.on('close', (code) => {
+              if (code === 0) {
+                resolve({ stdout, stderr });
+              } else {
+                reject(new Error(`Command exited with code ${code}`));
+              }
+            });
+
+            child.on('error', (error) => {
+              reject(error);
+            });
           });
 
-          child.on('error', (error) => {
-            reject(error);
-          });
-        });
+          executionResult.success = true;
+          executionResult.stdout = stdout;
+          executionResult.stderr = stderr;
 
-        executionResult.success = true;
-        executionResult.stdout = stdout;
-        executionResult.stderr = stderr;
+          if (stdout) {
+            appendMessage('ai', `{green-fg}Command output:{/}\n${stdout}`, false);
+          }
+          if (stderr) {
+            appendMessage('ai', `{yellow-fg}Command warnings/errors:{/}\n${stderr}`, false);
+          }
+          appendMessage('ai', `{green-fg}Command executed successfully.{/}`, false);
+        }
 
-        if (stdout) {
-          appendMessage('ai', `{green-fg}Command output:{/}\n${stdout}`, false);
-        }
-        if (stderr) {
-          appendMessage('ai', `{yellow-fg}Command warnings/errors:{/}\n${stderr}`, false);
-        }
-        appendMessage('ai', `{green-fg}Command executed successfully.{/}`, false);
         shellCommandsExecutionLog.push(executionResult);
       } catch (error) {
         executionResult.error = error.message;
@@ -1865,12 +1910,14 @@ async function executeShellCommand(command) {
       }
     }
 
-    await new Promise(resolve => setTimeout(resolve, 100));
     currentWorkingDir = process.cwd();
     updateStatusBar();
     await updateTreeBox();
     screen.render();
   }
+
+  isShellPromptActive = false;
+  inputBox.removeAllListeners('submit');
 
   if (allSuccessful) {
     appendMessage('ai', `{green-fg}All commands executed successfully. Execution log available in shellCommandsExecutionLog.{/}`, false);
@@ -1885,12 +1932,9 @@ async function executeShellCommand(command) {
     appendMessage('ai', logSummary, false);
   }
 
-  isShellPromptActive = false;
-  inputBox.removeAllListeners('submit');
   inputBox.clearValue();
   inputBox.focus();
   screen.render();
-
   inputBox.on('submit', handleInputSubmission);
 }
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-//11ku7-ai-nodecoder (version 1.0.4) (latest iteration == 18S) 
+//added tailwind support but config file handling remains same in shell mode
+//11ku7-ai-nodecoder (version 1.0.5) (latest iteration == 18T) 
 require('dotenv').config();
 const blessed = require('neo-blessed');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -65,7 +66,7 @@ marked.setOptions({
 // Create terminal screen
 const screen = blessed.screen({
   smartCSR: true,
-  title: '11ku7-ai-nodecoder (version 1.0.4)',
+  title: '11ku7-ai-nodecoder (version 1.0.5)',
   fullUnicode: false,
   autoPadding: true,
 });
@@ -260,7 +261,7 @@ const statusBar = blessed.text({
   left: 0,
   width: '100%',
   height: 4,
-  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.4){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
+  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.5){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
   tags: true,
   style: { fg: '#d4d4d4', bg: 'black' },
   hidden: true,
@@ -903,7 +904,7 @@ function updateStatusBar() {
   else if (editDirMode) activeMode = 'editdir';
   else if (askDirMode) activeMode = 'askdir';
   statusBar.setContent(
-    `{green-fg}11ku7-ai-nodecoder (version 1.0.4){/}\n` +
+    `{green-fg}11ku7-ai-nodecoder (version 1.0.5){/}\n` +
     `{gray-fg}cwd: ${currentWorkingDir}\n/help for help, mode: ${activeMode}\n` +
     `{#1E90FF-fg}Researched {/}{#1E90FF-fg}& {/}{#1E90FF-fg}developed {/}{#1E90FF-fg}in {/}{#FF9933-fg}In{/}{#FFFFFF-fg}di{/}{#138808-fg}a {/}`
   );
@@ -1428,7 +1429,7 @@ async function proposePlan(query, latestPlan = '') {
     });
 
     if (isSimpleQuery) {
-      const commandPrompt = `You are a shell command generator. The user has requested: "${query}". Generate a sequence of shell commands to accomplish the task without any reasoning or observation. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. Explicitly avoid using Tailwind CSS, tailwind.config.js, or any Tailwind-related dependencies in the generated commands. Use alternative styling solutions (e.g., plain CSS, Bootstrap) if styling is required. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
+      const commandPrompt = `You are a shell command generator. The user has requested: "${query}". Generate a sequence of shell commands to accomplish the task without any reasoning or observation. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
 
       const spinnerFrames = ['|', '/', '-', '\\'];
       let spinnerIndex = 0;
@@ -1473,7 +1474,7 @@ async function proposePlan(query, latestPlan = '') {
       let lastRenderedLength = 0;
 
       if (!plan) {
-        const planPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". Propose a high-level plan to accomplish this task, outlining the steps or commands needed (e.g., creating directories, installing dependencies, updating files). Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. Ensure the plan aligns with the user's requirements and explicitly avoids Tailwind CSS or tailwind.config.js, using plain CSS or Bootstrap for any styling needs.`;
+        const planPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". Propose a high-level plan to accomplish this task, outlining the steps or commands needed (e.g., creating directories, installing dependencies, updating files). Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. Ensure the plan aligns with the user's requirements. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed.`;
 
         const spinnerFrames = ['|', '/', '-', '\\'];
         let spinnerIndex = 0;
@@ -1554,7 +1555,7 @@ async function proposePlan(query, latestPlan = '') {
       });
 
       if (choice === 'a' || choice === 's') {
-        const commandPrompt = `You are a shell command generator. The user has approved the following plan for: "${query}":\n\n${plan}\n\nGenerate a sequence of shell commands to accomplish the task described in the plan. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. Explicitly avoid using Tailwind CSS, tailwind.config.js, or any Tailwind-related dependencies in the generated commands. Use alternative styling solutions (e.g., plain CSS, Bootstrap) if styling is required. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
+        const commandPrompt = `You are a shell command generator. The user has approved the following plan for: "${query}":\n\n${plan}\n\nGenerate a sequence of shell commands to accomplish the task described in the plan. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
 
         const spinnerFrames = ['|', '/', '-', '\\'];
         let spinnerIndex = 0;
@@ -1615,7 +1616,7 @@ async function proposePlan(query, latestPlan = '') {
         inputBox.focus();
         screen.render();
 
-        const revisedPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". The current plan is: "${plan}". The user has provided the following modification to the plan: "${modification}". Revise the current plan to incorporate the modification, ensuring the revised plan aligns with the user's requirements and the modification. Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the revised plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. Ensure the plan explicitly avoids Tailwind CSS or tailwind.config.js, using plain CSS or Bootstrap for any styling needs.`;
+        const revisedPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". The current plan is: "${plan}". The user has provided the following modification to the plan: "${modification}". Revise the current plan to incorporate the modification, ensuring the revised plan aligns with the user's requirements and the modification. Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the revised plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed.`;
         buffer = '';
         lastRenderedLength = 0;
 

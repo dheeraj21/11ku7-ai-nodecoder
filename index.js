@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-//added tailwind support but config file handling remains same in shell mode
-//11ku7-ai-nodecoder (version 1.0.5) (latest iteration == 18T) 
+//corrected "one word per line" text rendering issue in chat area for some models, splitted shell mode into dir mode for codebase creation with planning, and shell mode to run shell commands without doing any planning 
+//11ku7-ai-nodecoder (version 1.0.6) (latest iteration == 18U2) 
 require('dotenv').config();
 const blessed = require('neo-blessed');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -66,7 +66,7 @@ marked.setOptions({
 // Create terminal screen
 const screen = blessed.screen({
   smartCSR: true,
-  title: '11ku7-ai-nodecoder (version 1.0.5)',
+  title: '11ku7-ai-nodecoder (version 1.0.6)',
   fullUnicode: false,
   autoPadding: true,
 });
@@ -261,7 +261,7 @@ const statusBar = blessed.text({
   left: 0,
   width: '100%',
   height: 4,
-  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.5){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
+  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.6){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
   tags: true,
   style: { fg: '#d4d4d4', bg: 'black' },
   hidden: true,
@@ -314,25 +314,33 @@ const DEFAULT_IGNORE_PATTERNS = new Set([
 ]);
 
 
-// Available commands
 const commands = {
-  '/copy': 'Copy/save all code blocks from the last AI response to the clipboard/File',
-  '/clear': 'Clear the chat',
-  '/exit': 'Exit the application',
   '/help': 'Show this help message',
+
   '/model': 'Change the current model',
+
   '/code': 'Toggle code-only generation mode',
   '/webapp': 'Toggle webapp-only generation mode',
   '/save <filename>': 'Save all code blocks from the last AI response to a file',
-  '/shell': 'Toggle shell command generation mode',
+  '/copy': 'Copy/save all code blocks from the last AI response to the clipboard/File',
   '/editcode <filename>': 'Load code from a file for modification (code/webapp modes)',
   '/askcode <filename>': 'Load code from a file to ask questions about it',
-  '/savecon': 'Save the entire chat conversation to a markdown file',
-  '/digest': 'Toggle digest mode or process a path (e.g., /digest ./my_project)',
-  '/loadcon <filename>': 'Load a saved chat conversation from a markdown file',
+
+  '/shell': 'Toggle shell command mode',
+
+  '/dir': 'Toggle directory command planning mode',
   '/editdir <path>': 'Load a directory for modification, edit specific files based on query',
   '/askdir <path>': 'Load a directory to ask questions about its contents',
+
+
+  '/savecon': 'Save the entire chat conversation to a markdown file',
+  '/loadcon <filename>': 'Load a saved chat conversation from a markdown file',
   '/desc': 'Describe each mode and command in detailed paragraphs covering purpose, usage, and functionality',
+  '/clear': 'Clear the chat',
+
+  '/digest': 'Toggle digest mode or process a path (e.g., /digest ./my_project)',
+
+  '/exit': 'Exit the application',
 };
 
 // Key bindings
@@ -355,6 +363,7 @@ let currentProvider = null;
 let availableModels = [];
 let codeOnlyMode = false;
 let webappOnlyMode = false;
+let dirMode = false;
 let shellMode = false;
 let shellCommandPrompted = false;
 let loadedCodeContext = '';
@@ -412,6 +421,7 @@ async function editDirectory(dirPath) {
     editDirMode = true;
     codeOnlyMode = false;
     webappOnlyMode = false;
+    dirMode = false;
     shellMode = false;
     digestMode = false;
     appendMessage('ai', `{green-fg}Directory ${dirPath} loaded for editing. File contents loaded into context.{/}`, false);
@@ -494,6 +504,7 @@ async function askDirectory(dirPath) {
     askDirMode = true;
     codeOnlyMode = false;
     webappOnlyMode = false;
+    dirMode = false;
     shellMode = false;
     digestMode = false;
     editDirMode = false;
@@ -899,12 +910,13 @@ function updateStatusBar() {
   let activeMode = 'none';
   if (codeOnlyMode) activeMode = 'code';
   else if (webappOnlyMode) activeMode = 'webapp';
+  else if (dirMode) activeMode = 'dir';
   else if (shellMode) activeMode = 'shell';
   else if (digestMode) activeMode = 'digest';
   else if (editDirMode) activeMode = 'editdir';
   else if (askDirMode) activeMode = 'askdir';
   statusBar.setContent(
-    `{green-fg}11ku7-ai-nodecoder (version 1.0.5){/}\n` +
+    `{green-fg}11ku7-ai-nodecoder (version 1.0.6){/}\n` +
     `{gray-fg}cwd: ${currentWorkingDir}\n/help for help, mode: ${activeMode}\n` +
     `{#1E90FF-fg}Researched {/}{#1E90FF-fg}& {/}{#1E90FF-fg}developed {/}{#1E90FF-fg}in {/}{#FF9933-fg}In{/}{#FFFFFF-fg}di{/}{#138808-fg}a {/}`
   );
@@ -1408,40 +1420,107 @@ async function validateDirectoryPath(dirPath) {
   }
 }
 
-async function proposePlan(query, latestPlan = '') {
+async function proposeDirPlan(query, latestPlan = '') {
   try {
-    // Define simple commands and their variations
-    const simpleCommands = [
-      'cd', 'ls', 'dir', 'pwd', 'cat', 'mkdir', 'rm', 'touch', 'echo', 'mv', 'cp',
-      'change directory', 'list', 'move', 'copy', 'remove', 'delete', 'make directory'
-    ];
+    let plan = latestPlan;
+    let buffer = '';
+    let lastRenderedLength = 0;
 
-    // Check if the query is a simple command or has 5 or fewer words
-    const words = query.trim().split(/\s+/);
-    const isSimpleQuery = words.length <= 5 || simpleCommands.some(cmd => {
-      const lowerQuery = query.trim().toLowerCase();
-      return (
-        lowerQuery.startsWith(cmd) ||
-        lowerQuery === cmd ||
-        lowerQuery.includes(` ${cmd} `) ||
-        lowerQuery.endsWith(` ${cmd}`)
-      );
+    if (!plan) {
+      const planPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". Propose a high-level plan to accomplish this task, outlining the steps or commands needed (e.g., creating directories, installing dependencies, updating files). Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. Ensure the plan aligns with the user's requirements. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed.`;
+
+      const spinnerFrames = ['|', '/', '-', '\\'];
+      let spinnerIndex = 0;
+      chatBox.insertBottom(`{gray-fg}Generating plan ${spinnerFrames[spinnerIndex]}{/}`);
+      let lastLineIndex = chatBox.getLines().length - 1;
+      const spinnerInterval = setInterval(() => {
+        spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+        chatBox.setLine(lastLineIndex, `{gray-fg}Generating plan ${spinnerFrames[spinnerIndex]}{/}`);
+        screen.render();
+      }, 100);
+
+      if (currentProvider === 'Gemini') {
+        const result = await currentModel.generateContentStream(planPrompt);
+        for await (const chunk of result.stream) {
+          buffer += chunk.text();
+          if (buffer.length > lastRenderedLength) {
+            clearInterval(spinnerInterval);
+            const newContent = buffer.slice(lastRenderedLength);
+            const markedNewContent = marked(newContent);
+            chatBox.deleteLine(lastLineIndex);
+            chatBox.insertBottom(markedNewContent);
+            chatBox.setScrollPerc(100);
+            screen.render();
+            lastRenderedLength = buffer.length;
+            lastLineIndex = chatBox.getLines().length - 1;
+          }
+        }
+      } else if (currentProvider === 'OpenAI') {
+        const stream = await openAI.chat.completions.create({
+          model: currentModel,
+          messages: [{ role: 'system', content: planPrompt }, { role: 'user', content: query }],
+          stream: true,
+        });
+        for await (const chunk of stream) {
+          buffer += chunk.choices[0]?.delta?.content || '';
+          if (buffer.length > lastRenderedLength) {
+            clearInterval(spinnerInterval);
+            const newContent = buffer.slice(lastRenderedLength);
+            const markedNewContent = marked(newContent);
+            chatBox.deleteLine(lastLineIndex);
+            chatBox.insertBottom(markedNewContent);
+            chatBox.setScrollPerc(100);
+            screen.render();
+            lastRenderedLength = buffer.length;
+            lastLineIndex = chatBox.getLines().length - 1;
+          }
+        }
+      }
+
+      clearInterval(spinnerInterval);
+      if (buffer.length > lastRenderedLength) {
+        const remainingContent = buffer.slice(lastRenderedLength);
+        const markedRemainingContent = marked(remainingContent);
+        chatBox.deleteLine(lastLineIndex);
+        chatBox.insertBottom(markedRemainingContent);
+        chatBox.setScrollPerc(100);
+        screen.render();
+        lastLineIndex = chatBox.getLines().length - 1;
+      } else {
+        chatBox.deleteLine(lastLineIndex);
+      }
+
+      plan = buffer;
+    }
+
+    // Prompt user for execution choice
+    appendMessage('ai', `{green-fg}Proposed Plan for "${query}":{/}\n${plan}\n{yellow-fg}Execute this plan? [a]uto, [s]tep-by-step, [c]ancel:{/}`, false);
+    await fs.appendFile(tempChatFile, `## AI\nProposed Plan for "${query}":\n${plan}\n\n`);
+
+    inputBox.removeAllListeners('submit');
+
+    const choice = await new Promise((resolve) => {
+      const choiceHandler = (response) => {
+        inputBox.removeListener('submit', choiceHandler);
+        resolve(response.trim().toLowerCase());
+      };
+      inputBox.once('submit', choiceHandler);
     });
 
-    if (isSimpleQuery) {
-      const commandPrompt = `You are a shell command generator. The user has requested: "${query}". Generate a sequence of shell commands to accomplish the task without any reasoning or observation. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
+    if (choice === 'a' || choice === 's') {
+      const commandPrompt = `You are a shell command generator. The user has approved the following plan for: "${query}":\n\n${plan}\n\nGenerate a sequence of shell commands to accomplish the task described in the plan. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
 
       const spinnerFrames = ['|', '/', '-', '\\'];
       let spinnerIndex = 0;
       chatBox.insertBottom(`{gray-fg}Generating commands ${spinnerFrames[spinnerIndex]}{/}`);
       let lastLineIndex = chatBox.getLines().length - 1;
-      const spinnerInterval = setInterval(() => {
+      const cmdSpinnerInterval = setInterval(() => {
         spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
         chatBox.setLine(lastLineIndex, `{gray-fg}Generating commands ${spinnerFrames[spinnerIndex]}{/}`);
         screen.render();
       }, 100);
 
-      let buffer = '';
+      buffer = '';
 
       if (currentProvider === 'Gemini') {
         const result = await currentModel.generateContent(commandPrompt);
@@ -1455,241 +1534,163 @@ async function proposePlan(query, latestPlan = '') {
         buffer = response.choices[0].message.content;
       }
 
-      clearInterval(spinnerInterval);
+      clearInterval(cmdSpinnerInterval);
       chatBox.deleteLine(lastLineIndex);
 
-      // Extract commands from markdown code block
       const codeBlockMatch = buffer.match(/```bash\n([\s\S]*?)\n```/);
       const commands = codeBlockMatch ? codeBlockMatch[1].trim() : buffer;
       if (commands) {
         appendMessage('ai', `{green-fg}Generated commands for "${query}":{/}\n\`\`\`bash\n${commands}\n\`\`\``, false);
-        await executeShellCommand(commands);
+        await executeShellCommand(commands, choice === 'a');
       } else {
         appendMessage('ai', `{red-fg}No commands generated for "${query}".{/}`, false);
       }
     } else {
-      // For queries with more than 5 words, propose a plan
-      let plan = latestPlan;
-      let buffer = '';
-      let lastRenderedLength = 0;
-
-      if (!plan) {
-        const planPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". Propose a high-level plan to accomplish this task, outlining the steps or commands needed (e.g., creating directories, installing dependencies, updating files). Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. Ensure the plan aligns with the user's requirements. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed.`;
-
-        const spinnerFrames = ['|', '/', '-', '\\'];
-        let spinnerIndex = 0;
-        chatBox.insertBottom(`{gray-fg}Generating plan ${spinnerFrames[spinnerIndex]}{/}`);
-        let lastLineIndex = chatBox.getLines().length - 1;
-        const spinnerInterval = setInterval(() => {
-          spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-          chatBox.setLine(lastLineIndex, `{gray-fg}Generating plan ${spinnerFrames[spinnerIndex]}{/}`);
-          screen.render();
-        }, 100);
-
-        if (currentProvider === 'Gemini') {
-          const result = await currentModel.generateContentStream(planPrompt);
-          for await (const chunk of result.stream) {
-            buffer += chunk.text();
-            if (buffer.length > lastRenderedLength) {
-              clearInterval(spinnerInterval);
-              const newContent = buffer.slice(lastRenderedLength);
-              const markedNewContent = marked(newContent);
-              chatBox.deleteLine(lastLineIndex);
-              chatBox.insertBottom(markedNewContent);
-              chatBox.setScrollPerc(100);
-              screen.render();
-              lastRenderedLength = buffer.length;
-              lastLineIndex = chatBox.getLines().length - 1;
-            }
-          }
-        } else if (currentProvider === 'OpenAI') {
-          const stream = await openAI.chat.completions.create({
-            model: currentModel,
-            messages: [{ role: 'system', content: planPrompt }, { role: 'user', content: query }],
-            stream: true,
-          });
-          for await (const chunk of stream) {
-            buffer += chunk.choices[0]?.delta?.content || '';
-            if (buffer.length > lastRenderedLength) {
-              clearInterval(spinnerInterval);
-              const newContent = buffer.slice(lastRenderedLength);
-              const markedNewContent = marked(newContent);
-              chatBox.deleteLine(lastLineIndex);
-              chatBox.insertBottom(markedNewContent);
-              chatBox.setScrollPerc(100);
-              screen.render();
-              lastRenderedLength = buffer.length;
-              lastLineIndex = chatBox.getLines().length - 1;
-            }
-          }
-        }
-
-        clearInterval(spinnerInterval);
-        if (buffer.length > lastRenderedLength) {
-          const remainingContent = buffer.slice(lastRenderedLength);
-          const markedRemainingContent = marked(remainingContent);
-          chatBox.deleteLine(lastLineIndex);
-          chatBox.insertBottom(markedRemainingContent);
-          chatBox.setScrollPerc(100);
-          screen.render();
-          lastLineIndex = chatBox.getLines().length - 1;
-        } else {
-          chatBox.deleteLine(lastLineIndex);
-        }
-
-        plan = buffer;
-      }
-
-      // Prompt user for execution choice
-      appendMessage('ai', `{green-fg}Proposed Plan for "${query}":{/}\n${plan}\n{yellow-fg}Execute this plan? [a]uto, [s]tep-by-step, [c]ancel:{/}`, false);
-      await fs.appendFile(tempChatFile, `## AI\nProposed Plan for "${query}":\n${plan}\n\n`);
+      appendMessage('ai', `{gray-fg}Please describe what needs to change in the proposed plan:{/}`, false);
+      inputBox.clearValue();
+      inputBox.setValue('');
+      inputBox.focus();
+      screen.render();
 
       inputBox.removeAllListeners('submit');
 
-      const choice = await new Promise((resolve) => {
-        const choiceHandler = (response) => {
-          inputBox.removeListener('submit', choiceHandler);
-          resolve(response.trim().toLowerCase());
+      const modification = await new Promise((resolve) => {
+        const modificationHandler = (response) => {
+          inputBox.removeListener('submit', modificationHandler);
+          resolve(response.trim());
         };
-        inputBox.once('submit', choiceHandler);
+        inputBox.once('submit', modificationHandler);
       });
 
-      if (choice === 'a' || choice === 's') {
-        const commandPrompt = `You are a shell command generator. The user has approved the following plan for: "${query}":\n\n${plan}\n\nGenerate a sequence of shell commands to accomplish the task described in the plan. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
+      appendMessage('user', modification, false);
+      await fs.appendFile(tempChatFile, `## User\n${modification}\n\n`);
 
-        const spinnerFrames = ['|', '/', '-', '\\'];
-        let spinnerIndex = 0;
-        chatBox.insertBottom(`{gray-fg}Generating commands ${spinnerFrames[spinnerIndex]}{/}`);
-        let lastLineIndex = chatBox.getLines().length - 1;
-        const cmdSpinnerInterval = setInterval(() => {
-          spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-          chatBox.setLine(lastLineIndex, `{gray-fg}Generating commands ${spinnerFrames[spinnerIndex]}{/}`);
-          screen.render();
-        }, 100);
+      inputBox.clearValue();
+      inputBox.focus();
+      screen.render();
 
-        buffer = '';
+      const revisedPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". The current plan is: "${plan}". The user has provided the following modification to the plan: "${modification}". Revise the current plan to incorporate the modification, ensuring the revised plan aligns with the user's requirements and the modification. Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the revised plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed.`;
+      buffer = '';
+      lastRenderedLength = 0;
 
-        if (currentProvider === 'Gemini') {
-          const result = await currentModel.generateContent(commandPrompt);
-          buffer = result.response.text();
-        } else if (currentProvider === 'OpenAI') {
-          const response = await openAI.chat.completions.create({
-            model: currentModel,
-            messages: [{ role: 'system', content: commandPrompt }, { role: 'user', content: query }],
-            stream: false,
-          });
-          buffer = response.choices[0].message.content;
-        }
-
-        clearInterval(cmdSpinnerInterval);
-        chatBox.deleteLine(lastLineIndex);
-
-        const codeBlockMatch = buffer.match(/```bash\n([\s\S]*?)\n```/);
-        const commands = codeBlockMatch ? codeBlockMatch[1].trim() : buffer;
-        if (commands) {
-          appendMessage('ai', `{green-fg}Generated commands for "${query}":{/}\n\`\`\`bash\n${commands}\n\`\`\``, false);
-          await executeShellCommand(commands, choice === 'a');
-        } else {
-          appendMessage('ai', `{red-fg}No commands generated for "${query}".{/}`, false);
-        }
-      } else {
-        appendMessage('ai', `{gray-fg}Please describe what needs to change in the proposed plan:{/}`, false);
-        inputBox.clearValue();
-        inputBox.setValue('');
-        inputBox.focus();
+      const spinnerFrames = ['|', '/', '-', '\\'];
+      let spinnerIndex = 0;
+      chatBox.insertBottom(`{gray-fg}Generating revised plan ${spinnerFrames[spinnerIndex]}{/}`);
+      let lastLineIndex = chatBox.getLines().length - 1;
+      const newSpinnerInterval = setInterval(() => {
+        spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+        chatBox.setLine(lastLineIndex, `{gray-fg}Generating revised plan ${spinnerFrames[spinnerIndex]}{/}`);
         screen.render();
+      }, 100);
 
-        inputBox.removeAllListeners('submit');
-
-        const modification = await new Promise((resolve) => {
-          const modificationHandler = (response) => {
-            inputBox.removeListener('submit', modificationHandler);
-            resolve(response.trim());
-          };
-          inputBox.once('submit', modificationHandler);
+      if (currentProvider === 'Gemini') {
+        const result = await currentModel.generateContentStream(revisedPrompt);
+        for await (const chunk of result.stream) {
+          buffer += chunk.text();
+          if (buffer.length > lastRenderedLength) {
+            clearInterval(newSpinnerInterval);
+            const newContent = buffer.slice(lastRenderedLength);
+            const markedNewContent = marked(newContent);
+            chatBox.deleteLine(lastLineIndex);
+            chatBox.insertBottom(markedNewContent);
+            chatBox.setScrollPerc(100);
+            screen.render();
+            lastRenderedLength = buffer.length;
+            lastLineIndex = chatBox.getLines().length - 1;
+          }
+        }
+      } else if (currentProvider === 'OpenAI') {
+        const stream = await openAI.chat.completions.create({
+          model: currentModel,
+          messages: [{ role: 'system', content: revisedPrompt }, { role: 'user', content: modification }],
+          stream: true,
         });
-
-        appendMessage('user', modification, false);
-        await fs.appendFile(tempChatFile, `## User\n${modification}\n\n`);
-
-        inputBox.clearValue();
-        inputBox.focus();
-        screen.render();
-
-        const revisedPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested a shell command sequence for: "${query}". The current plan is: "${plan}". The user has provided the following modification to the plan: "${modification}". Revise the current plan to incorporate the modification, ensuring the revised plan aligns with the user's requirements and the modification. Use a conversational style, starting with phrases like "Let's set up..." or "We'll start by..." to engage the user, and maintain a clear, approachable tone throughout. Do not include actual shell commands or code blocks. Present the revised plan as a single, concise paragraph in markdown format, avoiding lists or bullet points. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed.`;
-        buffer = '';
-        lastRenderedLength = 0;
-
-        const spinnerFrames = ['|', '/', '-', '\\'];
-        let spinnerIndex = 0;
-        chatBox.insertBottom(`{gray-fg}Generating revised plan ${spinnerFrames[spinnerIndex]}{/}`);
-        let lastLineIndex = chatBox.getLines().length - 1;
-        const newSpinnerInterval = setInterval(() => {
-          spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
-          chatBox.setLine(lastLineIndex, `{gray-fg}Generating revised plan ${spinnerFrames[spinnerIndex]}{/}`);
-          screen.render();
-        }, 100);
-
-        if (currentProvider === 'Gemini') {
-          const result = await currentModel.generateContentStream(revisedPrompt);
-          for await (const chunk of result.stream) {
-            buffer += chunk.text();
-            if (buffer.length > lastRenderedLength) {
-              clearInterval(newSpinnerInterval);
-              const newContent = buffer.slice(lastRenderedLength);
-              const markedNewContent = marked(newContent);
-              chatBox.deleteLine(lastLineIndex);
-              chatBox.insertBottom(markedNewContent);
-              chatBox.setScrollPerc(100);
-              screen.render();
-              lastRenderedLength = buffer.length;
-              lastLineIndex = chatBox.getLines().length - 1;
-            }
-          }
-        } else if (currentProvider === 'OpenAI') {
-          const stream = await openAI.chat.completions.create({
-            model: currentModel,
-            messages: [{ role: 'system', content: revisedPrompt }, { role: 'user', content: modification }],
-            stream: true,
-          });
-          for await (const chunk of stream) {
-            buffer += chunk.choices[0]?.delta?.content || '';
-            if (buffer.length > lastRenderedLength) {
-              clearInterval(newSpinnerInterval);
-              const newContent = buffer.slice(lastRenderedLength);
-              const markedNewContent = marked(newContent);
-              chatBox.deleteLine(lastLineIndex);
-              chatBox.insertBottom(markedNewContent);
-              chatBox.setScrollPerc(100);
-              screen.render();
-              lastRenderedLength = buffer.length;
-              lastLineIndex = chatBox.getLines().length - 1;
-            }
+        for await (const chunk of stream) {
+          buffer += chunk.choices[0]?.delta?.content || '';
+          if (buffer.length > lastRenderedLength) {
+            clearInterval(newSpinnerInterval);
+            const newContent = buffer.slice(lastRenderedLength);
+            const markedNewContent = marked(newContent);
+            chatBox.deleteLine(lastLineIndex);
+            chatBox.insertBottom(markedNewContent);
+            chatBox.setScrollPerc(100);
+            screen.render();
+            lastRenderedLength = buffer.length;
+            lastLineIndex = chatBox.getLines().length - 1;
           }
         }
-
-        clearInterval(newSpinnerInterval);
-        if (buffer.length > lastRenderedLength) {
-          const remainingContent = buffer.slice(lastRenderedLength);
-          const markedRemainingContent = marked(remainingContent);
-          chatBox.deleteLine(lastLineIndex);
-          chatBox.insertBottom(markedRemainingContent);
-          chatBox.setScrollPerc(100);
-          screen.render();
-        } else {
-          chatBox.deleteLine(lastLineIndex);
-        }
-
-        await proposePlan(query, buffer);
       }
 
-      inputBox.removeAllListeners('submit');
-      inputBox.on('submit', handleInputSubmission);
+      clearInterval(newSpinnerInterval);
+      if (buffer.length > lastRenderedLength) {
+        const remainingContent = buffer.slice(lastRenderedLength);
+        const markedRemainingContent = marked(remainingContent);
+        chatBox.deleteLine(lastLineIndex);
+        chatBox.insertBottom(markedRemainingContent);
+        chatBox.setScrollPerc(100);
+        screen.render();
+      } else {
+        chatBox.deleteLine(lastLineIndex);
+      }
+
+      await proposeDirPlan(query, buffer);
     }
+
+    inputBox.removeAllListeners('submit');
+    inputBox.on('submit', handleInputSubmission);
   } catch (error) {
     appendMessage('ai', `{red-fg}Error generating plan: ${error.message}{/}`, false);
   }
 }
+
+
+async function proposeShell(query) {
+  try {
+    const commandPrompt = `You are a shell command generator. The user has requested: "${query}". Generate a sequence of shell commands to accomplish the task without any reasoning or observation. For directory creation, use 'mkdir -p'. For file creation, use only the 'cat > filename << 'EOF' ... EOF' syntax. Do not use 'echo' or other commands for file writing. Ensure the code content within 'EOF' blocks is syntactically correct and executable as-is, without adding escape characters (e.g., no backslashes before backticks, quotes, or other special characters in JavaScript code, such as template literals like \`\`App \${isDarkMode ? 'dark-mode' : ''}\`\`). The user will handle any necessary escaping manually. You may use Tailwind CSS via CDN (e.g., <script src="https://cdn.tailwindcss.com"></script>) for styling, but explicitly avoid generating or referencing tailwind.config.js or any Tailwind-related configuration files. Use plain CSS or Bootstrap as alternatives if configuration is needed. Output all commands in a single markdown code block with 'bash' syntax highlighting, separating each command with a newline.`;
+
+    const spinnerFrames = ['|', '/', '-', '\\'];
+    let spinnerIndex = 0;
+    chatBox.insertBottom(`{gray-fg}Generating commands ${spinnerFrames[spinnerIndex]}{/}`);
+    let lastLineIndex = chatBox.getLines().length - 1;
+    const spinnerInterval = setInterval(() => {
+      spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+      chatBox.setLine(lastLineIndex, `{gray-fg}Generating commands ${spinnerFrames[spinnerIndex]}{/}`);
+      screen.render();
+    }, 100);
+
+    let buffer = '';
+
+    if (currentProvider === 'Gemini') {
+      const result = await currentModel.generateContent(commandPrompt);
+      buffer = result.response.text();
+    } else if (currentProvider === 'OpenAI') {
+      const response = await openAI.chat.completions.create({
+        model: currentModel,
+        messages: [{ role: 'system', content: commandPrompt }, { role: 'user', content: query }],
+        stream: false,
+      });
+      buffer = response.choices[0].message.content;
+    }
+
+    clearInterval(spinnerInterval);
+    chatBox.deleteLine(lastLineIndex);
+
+    // Extract commands from markdown code block
+    const codeBlockMatch = buffer.match(/```bash\n([\s\S]*?)\n```/);
+    const commands = codeBlockMatch ? codeBlockMatch[1].trim() : buffer;
+    if (commands) {
+      appendMessage('ai', `{green-fg}Generated commands for "${query}":{/}\n\`\`\`bash\n${commands}\n\`\`\``, false);
+      await executeShellCommand(commands);
+    } else {
+      appendMessage('ai', `{red-fg}No commands generated for "${query}".{/}`, false);
+    }
+  } catch (error) {
+    appendMessage('ai', `{red-fg}Error generating commands: ${error.message}{/}`, false);
+  }
+}
+
+
+
 
 async function executeShellCommand(command, autoExecute = false) {
   // Ensure inputBox listeners are cleared at the start
@@ -2174,10 +2175,17 @@ async function getAIResponse(query) {
   }, 100);
 
   try {
+    if (dirMode) {
+      clearInterval(spinnerInterval);
+      chatBox.deleteLine(lastLineIndex);
+      await proposeDirPlan(query);
+      return;
+    }
+
     if (shellMode) {
       clearInterval(spinnerInterval);
       chatBox.deleteLine(lastLineIndex);
-      await proposePlan(query);
+      await proposeShell(query);
       return;
     }
 
@@ -2210,7 +2218,26 @@ async function getAIResponse(query) {
 
     let buffer = '';
     let lastRenderedLength = 0;
-    const MIN_RENDER_LENGTH = 300; // Increased to minimize fragmentation
+    const MIN_RENDER_LENGTH = 500; // Increased to buffer larger chunks
+    const SENTENCE_DELIMITERS = /[.!?]\s+/; // Sentence-ending punctuation followed by space
+    const CHAT_WIDTH = Math.floor(screen.width * 0.7 - 10); // Approximate chatBox width (70% of screen minus padding/borders)
+
+    // Function to wrap text to fit chatBox width
+    function wrapText(text, width) {
+      const words = text.split(' ');
+      let lines = [];
+      let currentLine = '';
+      for (const word of words) {
+        if ((currentLine + word).length <= width) {
+          currentLine += (currentLine ? ' ' : '') + word;
+        } else {
+          if (currentLine) lines.push(currentLine);
+          currentLine = word;
+        }
+      }
+      if (currentLine) lines.push(currentLine);
+      return lines.join('\n');
+    }
 
     if (currentProvider === 'Gemini') {
       const result = await currentModel.generateContentStream(fullQuery).catch(err => {
@@ -2219,57 +2246,27 @@ async function getAIResponse(query) {
         throw new Error(`Stream initiation failed: ${err.message}`);
       });
 
+      let accumulatedContent = '';
       for await (const chunk of result.stream) {
         try {
-          buffer += chunk.text();
-          if (buffer.length > lastRenderedLength) {
-            clearInterval(spinnerInterval); // Stop spinner when rendering starts
-            const newContent = buffer.slice(lastRenderedLength);
-            const markedNewContent = marked(newContent);
-            chatBox.deleteLine(lastLineIndex);
-            chatBox.insertBottom(markedNewContent);
-            chatBox.setScrollPerc(100);
-            screen.render();
-            lastRenderedLength = buffer.length;
-            lastLineIndex = chatBox.getLines().length - 1;
-          }
-        } catch (chunkError) {
-          clearInterval(spinnerInterval);
-          chatBox.deleteLine(lastLineIndex);
-          appendMessage('ai', `{red-fg}Error processing stream chunk: ${chunkError.message}{/}`, false);
-          return;
-        }
-      }
-    } else if (currentProvider === 'OpenAI') {
-      const stream = await openAI.chat.completions.create({
-        model: currentModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: query },
-        ],
-        stream: true,
-      }).catch(err => {
-        clearInterval(spinnerInterval);
-        chatBox.deleteLine(lastLineIndex);
-        throw new Error(`Stream initiation failed: ${err.message}`);
-      });
-
-      let accumulatedContent = '';
-      for await (const chunk of stream) {
-        try {
-          const content = chunk.choices[0]?.delta?.content || '';
-          accumulatedContent += content;
-          // Process accumulated content only when it reaches a sufficient length or ends with a sentence
-          if (accumulatedContent.length >= MIN_RENDER_LENGTH || 
-              (content === '' && /[.!?]\s*$/.test(accumulatedContent))) {
-            // Normalize content: remove stray punctuation, collapse spaces, remove soft breaks
-            const normalizedContent = accumulatedContent
-              .replace(/\s{2,}\n/g, '\n') // Remove markdown soft breaks (two spaces + newline)
+          accumulatedContent += chunk.text();
+          // Check if accumulated content contains a sentence boundary or is long enough
+          if (accumulatedContent.match(SENTENCE_DELIMITERS) || accumulatedContent.length >= MIN_RENDER_LENGTH) {
+            // Normalize content: collapse spaces, remove soft breaks
+            let normalizedContent = accumulatedContent
+              .replace(/\s{2,}\n/g, '\n') // Remove markdown soft breaks
               .replace(/\s*[?!]\s*(?=\w)/g, ' ') // Remove stray ? or ! followed by a word
               .replace(/\s+/g, ' ') // Collapse multiple spaces/tabs to single space
               .replace(/(\S)\n(\S)/g, '$1 $2') // Remove single newlines between words
               .replace(/\n+/g, '\n') // Collapse multiple newlines to single newline
               .trim();
+            // Preserve markdown code blocks and newlines for formatting
+            if (normalizedContent.includes('```')) {
+              normalizedContent = accumulatedContent; // Revert to raw content to preserve code block formatting
+            } else {
+              // Wrap text to fit chatBox width for non-code content
+              normalizedContent = wrapText(normalizedContent, CHAT_WIDTH);
+            }
             buffer += normalizedContent;
             if (buffer.length > lastRenderedLength) {
               clearInterval(spinnerInterval); // Stop spinner when rendering starts
@@ -2293,13 +2290,102 @@ async function getAIResponse(query) {
       }
       // Process any remaining accumulated content
       if (accumulatedContent) {
-        const normalizedContent = accumulatedContent
+        let normalizedContent = accumulatedContent
           .replace(/\s{2,}\n/g, '\n')
           .replace(/\s*[?!]\s*(?=\w)/g, ' ')
           .replace(/\s+/g, ' ')
           .replace(/(\S)\n(\S)/g, '$1 $2')
           .replace(/\n+/g, '\n')
           .trim();
+        if (normalizedContent.includes('```')) {
+          normalizedContent = accumulatedContent; // Preserve code block formatting
+        } else {
+          normalizedContent = wrapText(normalizedContent, CHAT_WIDTH);
+        }
+        buffer += normalizedContent;
+        if (buffer.length > lastRenderedLength) {
+          clearInterval(spinnerInterval);
+          const newContent = buffer.slice(lastRenderedLength);
+          const markedNewContent = marked(newContent);
+          chatBox.deleteLine(lastLineIndex);
+          chatBox.insertBottom(markedNewContent);
+          chatBox.setScrollPerc(100);
+          screen.render();
+          lastRenderedLength = buffer.length;
+          lastLineIndex = chatBox.getLines().length - 1;
+        }
+      }
+    } else if (currentProvider === 'OpenAI') {
+      const stream = await openAI.chat.completions.create({
+        model: currentModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: query },
+        ],
+        stream: true,
+      }).catch(err => {
+        clearInterval(spinnerInterval);
+        chatBox.deleteLine(lastLineIndex);
+        throw new Error(`Stream initiation failed: ${err.message}`);
+      });
+
+      let accumulatedContent = '';
+      for await (const chunk of stream) {
+        try {
+          const content = chunk.choices[0]?.delta?.content || '';
+          accumulatedContent += content;
+          // Check if accumulated content contains a sentence boundary or is long enough
+          if (accumulatedContent.match(SENTENCE_DELIMITERS) || accumulatedContent.length >= MIN_RENDER_LENGTH) {
+            // Normalize content: collapse spaces, remove soft breaks
+            let normalizedContent = accumulatedContent
+              .replace(/\s{2,}\n/g, '\n') // Remove markdown soft breaks
+              .replace(/\s*[?!]\s*(?=\w)/g, ' ') // Remove stray ? or ! followed by a word
+              .replace(/\s+/g, ' ') // Collapse multiple spaces/tabs to single space
+              .replace(/(\S)\n(\S)/g, '$1 $2') // Remove single newlines between words
+              .replace(/\n+/g, '\n') // Collapse multiple newlines to single newline
+              .trim();
+            // Preserve markdown code blocks and newlines for formatting
+            if (normalizedContent.includes('```')) {
+              normalizedContent = accumulatedContent; // Revert to raw content to preserve code block formatting
+            } else {
+              // Wrap text to fit chatBox width for non-code content
+              normalizedContent = wrapText(normalizedContent, CHAT_WIDTH);
+            }
+            buffer += normalizedContent;
+            if (buffer.length > lastRenderedLength) {
+              clearInterval(spinnerInterval); // Stop spinner when rendering starts
+              const newContent = buffer.slice(lastRenderedLength);
+              const markedNewContent = marked(newContent);
+              chatBox.deleteLine(lastLineIndex);
+              chatBox.insertBottom(markedNewContent);
+              chatBox.setScrollPerc(100);
+              screen.render();
+              lastRenderedLength = buffer.length;
+              lastLineIndex = chatBox.getLines().length - 1;
+            }
+            accumulatedContent = ''; // Reset accumulated content
+          }
+        } catch (chunkError) {
+          clearInterval(spinnerInterval);
+          chatBox.deleteLine(lastLineIndex);
+          appendMessage('ai', `{red-fg}Error processing stream chunk: ${chunkError.message}{/}`, false);
+          return;
+        }
+      }
+      // Process any remaining accumulated content
+      if (accumulatedContent) {
+        let normalizedContent = accumulatedContent
+          .replace(/\s{2,}\n/g, '\n')
+          .replace(/\s*[?!]\s*(?=\w)/g, ' ')
+          .replace(/\s+/g, ' ')
+          .replace(/(\S)\n(\S)/g, '$1 $2')
+          .replace(/\n+/g, '\n')
+          .trim();
+        if (normalizedContent.includes('```')) {
+          normalizedContent = accumulatedContent; // Preserve code block formatting
+        } else {
+          normalizedContent = wrapText(normalizedContent, CHAT_WIDTH);
+        }
         buffer += normalizedContent;
         if (buffer.length > lastRenderedLength) {
           clearInterval(spinnerInterval);
@@ -2317,14 +2403,17 @@ async function getAIResponse(query) {
 
     clearInterval(spinnerInterval); // Stop spinner for final rendering or no content
     if (buffer.length > lastRenderedLength) {
-      const remainingContent = buffer.slice(lastRenderedLength);
-      const normalizedContent = remainingContent
+      let remainingContent = buffer.slice(lastRenderedLength);
+      let normalizedContent = remainingContent
         .replace(/\s{2,}\n/g, '\n')
         .replace(/\s*[?!]\s*(?=\w)/g, ' ')
         .replace(/\s+/g, ' ')
         .replace(/(\S)\n(\S)/g, '$1 $2')
         .replace(/\n+/g, '\n')
         .trim();
+      if (!normalizedContent.includes('```')) {
+        normalizedContent = wrapText(normalizedContent, CHAT_WIDTH);
+      }
       const markedBuffer = marked(normalizedContent);
       chatBox.deleteLine(lastLineIndex);
       chatBox.insertBottom(markedBuffer);
@@ -2344,14 +2433,14 @@ async function getAIResponse(query) {
 }
 
 
-// Function to describe modes and commands in detail
 function describeModesAndCommands() {
   const note = `**Important Note:** Navigate the UI using keyboard key bindings (e.g., Esc to focus the folder tree, i for input, c for chat area, s for save button, m for multiline input). Use the mouse only for scrolling the chat area or tree; avoid clicking UI elements to select them while the input box is active. Clicking UI elements without first disabling input focus (via Esc) may cause double character input issues. After pressing Esc, mouse clicks can be used safely to interact with UI elements like the folder tree or save button. Always prioritize key bindings for selection and navigation to ensure a smooth experience.To paste content in multiline input box including error pasting can be done with ctrl+shift+v and right click, multiline input box is used for typing and pasting multiple line content, all queries will be submitted only with the main input combining the content of multiline input.`;
 
   const modeDescriptions = {
-    'Code Mode': `Code mode, toggled with /code, is a streamlined environment for generating and editing code snippets in various programming languages without explanatory text, ideal for developers crafting scripts or prototypes. When enabled, the AI produces code in markdown code blocks (e.g., \`\`\`python) based on the user's query, leveraging the current provider (Gemini or OpenAI) for syntactically correct output. If a file is loaded via /editcode, the existing code is included in the AI prompt and preserved unless explicitly modified, supporting iterative development. The mode disables webapp, shell, and digest modes to focus on code generation. A key feature is its integration with the temporary chat file (.temp-chat.md), which stores all AI responses, including code blocks, without length limitations imposed by memory buffers. This ensures unlimited generation length, as LLM outputs are appended to the file in real-time, accessible for /copy or /save actions. Use /code to toggle it on/off, and query specific code tasks (e.g., "write a Python function"). The output is stored in lastCodeBlocks for further processing, and the status bar reflects 'code' mode, making it a robust tool for coding workflows.`,
-    'Webapp Mode': `Webapp mode, activated with /webapp, is tailored for rapid prototyping of single-file HTML web applications, embedding JavaScript in a <script> tag and styling with Tailwind CSS classes, all delivered in a \`\`\`html code block. It automatically includes the Tailwind CSS CDN in the <head>, ensuring standalone functionality. When active, it disables code, shell, and digest modes to focus on web development. If code is loaded via /editcode, it’s treated as the base HTML, preserved unless modified, enabling iterative UI enhancements. The mode leverages the temporary chat file (.temp-chat.md) to store all AI-generated web app code, capturing unlimited output lengths from the LLM without buffer constraints. This file logs responses in real-time, ensuring no loss of complex or lengthy HTML structures, which can be retrieved for /copy or /save. Toggle with /webapp, and use queries to specify UI features (e.g., "create a login page"). The AI uses the selected model to produce responsive, styled web apps, with the status bar showing 'webapp' mode, making it ideal for front-end prototyping.`,
-    'Shell Mode': `Shell mode, toggled with /shell, is a powerful feature for automating system tasks by generating and executing bash command sequences, ideal for setting up software projects (e.g., initializing a Node.js app or Python environment). Activated via /shell, it disables code, webapp, digest, editdir, and askdir modes, updating the status bar to 'shell' mode. For queries with five or fewer words matching simple commands (e.g., "cd src", "ls", "mkdir test"), the AI directly generates executable bash commands in a \`\`\`bash block without a high-level plan, using 'mkdir -p' for directories and 'cat > file << 'EOF' for file creation, ensuring syntactically correct scripts without escape characters. For complex queries, the AI proposes a conversational high-level plan (e.g., "Let's set up a Node.js backend with Express...") using the current provider (Gemini or OpenAI), displayed as a markdown paragraph. Users approve (y), reject (N), or cancel the plan, or request modifications, which the AI incorporates into a revised plan recursively. Approved plans trigger command generation, with each command requiring user consent (y/n) before execution. Commands like 'cd' update the current working directory, while others (e.g., 'npm install') execute with stdout and stderr (e.g., npm warnings) captured in the chat area, preventing leakage to the input box. The temporary chat file (.temp-chat.md) logs all plans, commands, and outputs in real-time, supporting unlimited LLM output lengths for complex sequences. Executed commands update the folder tree dynamically, reflecting filesystem changes. Users toggle the mode off with /shell, and the AI ensures commands are executable in sequence, making Shell Mode ideal for project automation and system management.`,
+    'Code Mode': `Code mode, toggled with /code, is a streamlined environment for generating and editing code snippets in various programming languages without explanatory text, ideal for developers crafting scripts or prototypes. When enabled, the AI produces code in markdown code blocks (e.g., \`\`\`python) based on the user's query, leveraging the current provider (Gemini or OpenAI) for syntactically correct output. If a file is loaded via /editcode, the existing code is included in the AI prompt and preserved unless explicitly modified, supporting iterative development. The mode disables webapp, dir, digest, editdir, askdir, and shell modes to focus on code generation. A key feature is its integration with the temporary chat file (.temp-chat.md), which stores all AI responses, including code blocks, without length limitations imposed by memory buffers. This ensures unlimited generation length, as LLM outputs are appended to the file in real-time, accessible for /copy or /save actions. Use /code to toggle it on/off, and query specific code tasks (e.g., "write a Python function"). The output is stored in lastCodeBlocks for further processing, and the status bar reflects 'code' mode, making it a robust tool for coding workflows.`,
+    'Webapp Mode': `Webapp mode, activated with /webapp, is tailored for rapid prototyping of single-file HTML web applications, embedding JavaScript in a <script> tag and styling with Tailwind CSS classes, all delivered in a \`\`\`html code block. It automatically includes the Tailwind CSS CDN in the <head>, ensuring standalone functionality. When active, it disables code, dir, digest, editdir, askdir, and shell modes to focus on web development. If code is loaded via /editcode, it’s treated as the base HTML, preserved unless modified, enabling iterative UI enhancements. The mode leverages the temporary chat file (.temp-chat.md) to store all AI-generated web app code, capturing unlimited output lengths from the LLM without buffer constraints. This file logs responses in real-time, ensuring no loss of complex or lengthy HTML structures, which can be retrieved for /copy or /save. Toggle with /webapp, and use queries to specify UI features (e.g., "create a login page"). The AI uses the selected model to produce responsive, styled web apps, with the status bar showing 'webapp' mode, making it ideal for front-end prototyping.`,
+    'Dir Mode': `Dir mode, toggled with /dir, is a powerful feature for automating system tasks by generating and executing bash command sequences, ideal for setting up software projects (e.g., initializing a Node.js app or Python environment). Activated via /dir, it disables code, webapp, digest, editdir, askdir, and shell modes, updating the status bar to 'dir' mode. The AI proposes a conversational high-level plan (e.g., "Let's set up a Node.js backend with Express...") using the current provider (Gemini or OpenAI), displayed as a markdown paragraph. Users approve ([a]uto, [s]tep-by-step, [c]ancel) or request modifications, which the AI incorporates into a revised plan recursively. Approved plans trigger command generation, with each command requiring user consent (y/n) in step-by-step mode or executing automatically in auto mode. Commands like 'cd' update the current working directory, while others (e.g., 'npm install') execute with stdout and stderr (e.g., npm warnings) captured in the chat area, preventing leakage to the input box. The temporary chat file (.temp-chat.md) logs all plans, commands, and outputs in real-time, supporting unlimited LLM output lengths for complex sequences. Executed commands update the folder tree dynamically, reflecting filesystem changes. Users toggle the mode off with /dir, and the AI ensures commands are executable in sequence, making Dir Mode ideal for project automation and system management.`,
+    'Shell Mode': `Shell mode, toggled with /shell, is designed for direct generation and execution of bash shell commands without plan proposals, allowing users to input any command request regardless of complexity (e.g., "create a directory and initialize a git repository"). Activated via /shell, it disables code, webapp, dir, digest, editdir, and askdir modes, updating the status bar to 'shell' mode. The AI generates executable bash commands in a \`\`\`bash block using the current provider (Gemini or OpenAI), employing 'mkdir -p' for directories and 'cat > file << 'EOF' for file creation, ensuring syntactically correct scripts without escape characters. Each command requires user consent (y/n) before execution, with outputs (stdout/stderr, e.g., npm warnings) displayed in the chat area. The temporary chat file (.temp-chat.md) logs all generated commands and outputs in real-time, supporting unlimited LLM output lengths. Executed commands update the folder tree, reflecting filesystem changes. Toggle off with /shell, and use queries to specify any shell task (e.g., "install Node.js dependencies"). This mode is ideal for quick, unrestricted shell command execution, leveraging the AI for precise automation.`,
     'Digest Mode': `Digest mode, controlled via /digest, analyzes a project directory or file by scanning its structure and content, producing a detailed summary and file contents in a digest_output.txt file. Use /digest <path> to process a local path or git URL, or /digest on/off to toggle the mode. When active, queries use the digested content as context, ideal for understanding large codebases or repositories. It respects ignore patterns (e.g., node_modules) and limits (e.g., 10MB files, 500MB total). The mode disables other modes and displays directory trees and file previews in the chat area, updating the tree view. It’s implemented using recursive directory scanning and supports temporary cloning for remote repos.`,
     'EditDir Mode': `EditDir mode, activated with /editdir <path>, enables AI-driven batch modifications across a directory’s text files, perfect for refactoring, adding features, or updating multiple files (e.g., "add error handling to all Python files"). Initiated by specifying a directory path, it scans the directory asynchronously, loading text file contents into editDirContext, disables other modes, and updates the status bar to 'editdir' mode. The AI generates a conversational project overview (e.g., "This project is a Node.js app with Express...") and responds to user queries by proposing a high-level plan in a markdown paragraph, outlining specific file changes (e.g., "Let's update main.py to add try-catch blocks..."). Users approve (y), reject (N), or cancel the plan, or request modifications, which the AI incorporates recursively. Approved plans prompt the AI to generate updated file contents in \`\`\` blocks labeled with file paths (e.g., File: src/main.py), using the current provider (Gemini or OpenAI). Each file change requires user consent (y/n) before writing to the filesystem, ensuring precision. Modified files are logged in the temporary chat file (.temp-chat.md), capturing unlimited LLM outputs for complex edits, and the folder tree updates to reflect changes. If the directory is modified, an updated project overview is generated automatically. Users can query further changes or exit the mode, with editDirContext preserving the latest file states. This mode leverages async file operations and is ideal for large-scale codebase maintenance.`,
     'AskDir Mode': `AskDir mode, started with /askdir <path>, loads a directory’s text files into askDirContext for answering questions about the codebase without modifying files, making it ideal for code reviews, debugging, or understanding project structure. Activated by specifying a directory path, it uses async scanning to load file contents, disables other modes, and updates the status bar to 'askdir' mode. The AI generates a conversational project overview (e.g., "We're looking at a Python project with Flask...") and responds to queries like "explain main.py" or "how do I run this project?" in plain markdown paragraphs with a friendly tone, embedding commands or code snippets directly in the text (e.g., "To run it, use npm install then npm start"). Responses are context-aware, leveraging askDirContext and the current provider (Gemini or OpenAI). The temporary chat file (.temp-chat.md) stores all responses, supporting unlimited LLM output lengths for detailed explanations. The folder tree updates for navigation, allowing users to select files (via Enter) to append paths to the input box for specific queries. Users can continue asking questions or exit the mode, with no filesystem changes. This mode is perfect for in-depth codebase analysis and leverages async directory scanning for accuracy.`
@@ -2359,14 +2448,15 @@ function describeModesAndCommands() {
 
   const commandDescriptions = {
     '/copy': `The /copy command extracts all code blocks from the latest AI response and attempts to copy them to the system clipboard, or saves them to temp-clipboard.txt if clipboard access fails (e.g., non-Termux environments). In Termux, it uses termux-clipboard-set, requiring Termux:API. This command is useful for quickly transferring generated code to other applications or files. It reads the temporary chat file (.temp-chat.md) to find the last AI response, extracts code using regex-based parsing, and combines blocks with newlines. Execute /copy after an AI response containing code (e.g., from code or webapp mode) to use it. The chat area confirms success or failure, and no arguments are needed.`,
-    '/clear': `The /clear command resets the chat interface, clearing the chat area, code blocks, and loaded contexts (e.g., loadedCodeContext, askCodeContext). It reinitializes the temporary chat file (.temp-chat.md) and sets the chat area to a default message indicating the current provider and model. This is useful for starting a fresh conversation without exiting the application. It preserves the current provider/model and directory state but resets modes like digest or conversation loading. Simply type /clear to execute, and the chat area will confirm the action. No arguments are required, and it works in any mode.`,
+    '/clear': `The /clear.Monthly subscription plan for grok.com that offers users higher Grok 3 usage quotas than the free plan.clear command resets the chat interface, clearing the chat area, code blocks, and loaded contexts (e.g., loadedCodeContext, askCodeContext). It reinitializes the temporary chat file (.temp-chat.md) and sets the chat area to a default message indicating the current provider and model. This is useful for starting a fresh conversation without exiting the application. It preserves the current provider/model and directory state but resets modes like digest or conversation loading. Simply type /clear to execute, and the chat area will confirm the action. No arguments are required, and it works in any mode.`,
     '/exit': `The /exit command terminates the application, deleting the temporary chat file (.temp-chat.md) to clean up. It’s used to gracefully close the program, ensuring no residual files remain. Executing /exit triggers process.exit(0), stopping all operations. Type /exit in the input box to use it; no arguments are needed. The command is available in any mode and doesn’t affect the filesystem beyond removing the temp file. It’s implemented with a try-catch to handle file deletion errors silently, ensuring a smooth exit.`,
     '/help': `The /help command displays a concise list of all available commands and key bindings in the chat area, formatted with blue command names and descriptions. It’s designed to provide quick reference for users unfamiliar with the interface’s functionality. The command iterates through the commands and keyBindings objects, using blessed’s tag syntax for styling, and outputs via appendMessage. Type /help to view the list, with no arguments required. It works in any mode and doesn’t alter state, making it a safe way to explore the interface’s capabilities without side effects.`,
     '/model': `The /model command allows switching the AI provider or model mid-conversation, returning the user to the provider selection screen (Gemini or OpenAI Compatible). For Gemini, it fetches available models via the Google Generative AI API; for OpenAI, it prompts for a base URL and model name. This is useful for testing different models or APIs without restarting. Type /model to initiate, hiding the chat interface and showing the selection UI. The command resets the chat state but preserves the working directory, and the new provider/model is confirmed in the chat area upon selection.`,
-    '/code': `The /code command toggles code-only mode, enabling or disabling it while turning off webapp, shell, and digest modes. When active, the AI generates code snippets in markdown code blocks without explanations, ideal for rapid coding tasks. If code is loaded via /editcode, it’s included in the AI prompt for modification. Type /code to toggle; no arguments are needed. The chat area confirms the mode change, and the status bar updates to reflect 'code' mode. The AI uses the current provider to generate code, storing output in lastCodeBlocks for /copy or /save. This mode streamlines code-focused workflows.`,
-    '/webapp': `The /webapp command toggles webapp-only mode, enabling or disabling it while deactivating code, shell, and digest modes. When active, the AI generates single-file HTML web apps with Tailwind CSS and embedded JavaScript, output in \`\`\`html blocks. It’s designed for quick web prototyping, including the Tailwind CDN automatically. Use /webapp to toggle, with no arguments. If code is loaded via /editcode, it’s treated as HTML for edits. The chat area confirms the mode switch, and the status bar shows 'webapp' mode. Outputs are saved for /copy or /save, leveraging the AI provider for responsive designs.`,
+    '/code': `The /code command toggles code-only mode, enabling or disabling it while turning off webapp, dir, and digest modes. When active, the AI generates code snippets in markdown code blocks without explanations, ideal for rapid coding tasks. If code is loaded via /editcode, it’s included in the AI prompt for modification. Type /code to toggle; no arguments are needed. The chat area confirms the mode change, and the status bar updates to reflect 'code' mode. The AI uses the current provider to generate code, storing output in lastCodeBlocks for /copy or /save. This mode streamlines code-focused workflows.`,
+    '/webapp': `The /webapp command toggles webapp-only mode, enabling or disabling it while deactivating code, dir, and digest modes. When active, the AI generates single-file HTML web apps with Tailwind CSS and embedded JavaScript, output in \`\`\`html blocks. It’s designed for quick web prototyping, including the Tailwind CDN automatically. use /webapp to toggle, with no arguments. If code is loaded via /editcode, it’s treated as HTML for edits. The chat area confirms the mode switch, and the status bar shows 'webapp' mode. Outputs are saved for /copy or /save, leveraging the AI provider for responsive designs.`,
     '/save': `The /save <filename> command saves all code blocks from the latest AI response to a specified file in the current working directory. It’s useful for persisting generated code (e.g., from code or webapp mode) to the filesystem. The command reads the temporary chat file, extracts code blocks, and writes them to the file, updating the tree view. Type /save myfile.js, replacing 'myfile.js' with your filename. If no code exists, an error is shown in the chat area. The command works in any mode and confirms success or failure, ensuring the file is accessible for further edits.`,
-    '/shell': `The /shell command toggles shell mode, enabling or disabling it while deactivating code, webapp, and digest modes. In this mode, the AI generates bash commands in \`\`\`bash blocks for tasks like project setup, prompting for user consent (y/n) before execution. Outputs, including npm warnings/errors, are shown in the chat area. Type /shell to toggle; no arguments needed. The status bar updates to 'shell' mode, and executed commands update the directory and tree view. This mode is ideal for automating system tasks, using the AI provider to ensure executable command sequences.`,
+    '/dir': `The /dir command toggles dir mode, enabling or disabling it while deactivating code, webapp, digest, editdir, askdir, and shell modes. In this mode, the AI proposes high-level plans for bash command sequences for tasks like project setup, prompting for user approval ([a]uto, [s]tep-by-step, [c]ancel) before generating commands. Commands require consent (y/n) in step-by-step mode or execute automatically in auto mode. Outputs, including npm warnings/errors, are shown in the chat area. Type /dir to toggle; no arguments needed. The status bar updates to 'dir' mode, and executed commands update the directory and tree view. This mode is ideal for structured project automation, using the AI provider to ensure executable command sequences.`,
+    '/shell': `The /shell command toggles shell mode, enabling or disabling it while deactivating code, webapp, dir, digest, editdir, and askdir modes. In this mode, the AI generates bash commands in \`\`\`bash blocks for any user-specified task (e.g., "create a directory and initialize a git repository") without proposing a plan, ideal for quick command execution. Commands are generated using 'mkdir -p' for directories and 'cat > file << 'EOF' for file creation, with user consent (y/n) required before execution. Outputs (stdout/stderr) are shown in the chat area, and the temporary chat file (.temp-chat.md) logs all commands and outputs. Type /shell to toggle; no arguments needed. The status bar updates to 'shell' mode, and the folder tree reflects filesystem changes. This mode leverages the AI provider for direct, unrestricted shell automation.`,
     '/editcode': `The /editcode <filename> command loads a file’s content into loadedCodeContext for modification in code or webapp mode. The AI includes the loaded code in its prompt, preserving it unless the user requests changes, making it ideal for iterative code editing. Type /editcode myfile.js, specifying the file path. The file’s content is displayed in the chat area, and subsequent queries modify it (e.g., "add a function"). The command works in any mode, updates the tree view, and confirms success or failure. It’s implemented with async file reading and supports any text file in the working directory.`,
     '/askcode': `The /askcode <filename> command loads a file’s content into askCodeContext for answering questions without modification, perfect for code analysis or debugging. The AI uses the file as context to respond to queries like "explain this function." Type /askcode myfile.js with the file path. The content is shown in the chat area, and queries are answered using the current AI provider. The command works in any mode, doesn’t alter the file, and confirms loading success or failure. It uses async file reading and updates the tree view for navigation.`,
     '/savecon': `The /savecon command saves the entire chat conversation to a markdown file named chat-conversation-<timestamp>.md in the working directory. It’s useful for archiving discussions, including user queries and AI responses, for later review or sharing. The command reads the temporary chat file (.temp-chat.md) and writes it to the new file, updating the tree view. Type /savecon with no arguments to execute. The chat area confirms the save, and the file is formatted with ## User and ## AI headers. It works in any mode and doesn’t affect the current session.`,
@@ -2374,7 +2464,7 @@ function describeModesAndCommands() {
     '/loadcon': `The /loadcon <filename> command loads a saved markdown conversation file (e.g., from /savecon) into the chat area, restoring user and AI messages. It’s useful for resuming past sessions or reviewing archived chats. Type /loadcon chat-conversation-2025-04-14T12-00-00.md with the filename. The command clears the current chat, reinitializes the temp file, and extracts the last code block for code/webapp mode context. It confirms success or failure in the chat area, updates the tree view, and works in any mode without altering the filesystem beyond the temp file.`,
     '/editdir': `The /editdir <path> command initiates editDir mode, loading a directory’s text files into editDirContext for AI-driven modifications. Queries prompt the AI to propose file changes in \`\`\` blocks, requiring user consent (y/n) before updating the filesystem. It’s designed for batch edits, like refactoring multiple files. Type /editdir ./my_project to start, then query changes (e.g., "add error handling"). The chat area shows proposals and results, and the tree view updates. The mode disables others, uses async directory scanning, and confirms actions, ensuring precise file updates.`,
     '/askdir': `The /askdir <path> command starts askDir mode, loading a directory’s text files into askDirContext for answering questions without edits. It’s ideal for analyzing project structure or debugging, with queries like "what does main.py do?" answered using the file context. Type /askdir ./my_project to load the directory. The chat area displays the loaded context and responses, with no filesystem changes. The mode disables others, uses the AI provider for detailed answers, and updates the tree view. It leverages async directory scanning for accurate content loading.`,
-    '/desc': `The /desc command provides detailed paragraph descriptions of all modes, commands, and key bindings, covering their purpose, usage, and functionality. It’s designed to help users understand the interface’s capabilities in depth, displaying each description in the chat area. Type /desc with no arguments to execute. The command iterates through modes (code, webapp, shell, digest, editDir, askDir), the commands object, and key bindings, using predefined descriptions. It works in any mode, doesn’t alter state, and formats output with blessed tags for readability, serving as a comprehensive guide to the application’s features.`
+    '/desc': `The /desc command provides detailed paragraph descriptions of all modes, commands, and key bindings, covering their purpose, usage, and functionality. It’s designed to help users understand the interface’s capabilities in depth, displaying each description in the chat area. Type /desc with no arguments to execute. The command iterates through modes (code, webapp, dir, digest, editDir, askDir, shell), the commands object, and key bindings, using predefined descriptions. It works in any mode, doesn’t alter state, and formats output with blessed tags for readability, serving as a comprehensive guide to the application’s features.`
   };
 
   const keyBindingDescriptions = {
@@ -2412,7 +2502,7 @@ function describeModesAndCommands() {
 
   // Display temporary chat file description
   appendMessage('ai', '{bold}{gray-fg}Temporary Chat File (.temp-chat.md):{/}', false);
-  appendMessage('ai', `The temporary chat file (.temp-chat.md), stored in the current working directory, is a critical component of the application, acting as a persistent log for all user queries, AI responses, plans, code blocks, and command outputs across all modes (code, webapp, shell, digest, editDir, askDir). Initialized with initializeTempChatFile, it starts as a markdown file with a header and is appended to in real-time using appendMessage, ensuring no data loss even for lengthy LLM outputs that exceed memory buffer limits. This enables unlimited generation length, a key feature for handling complex responses like large codebases, detailed plans, or verbose shell command outputs (e.g., npm install logs). The file uses a structured format with ## User and ## AI headers to delineate interactions, making it human-readable and suitable for archiving via /savecon, which copies it to a timestamped file (e.g., chat-conversation-2025-04-14T12-00-00.md). In Shell Mode, it logs high-level plans, generated commands, and execution outputs (stdout/stderr), preserving automation workflows. In EditDir Mode, it stores project overviews, proposed file changes, and user consents, ensuring traceability for batch edits. AskDir Mode logs conversational responses and project analyses, supporting in-depth codebase queries. The /loadcon command reloads a saved conversation, restoring code contexts for iterative development, while /clear reinitializes the file to start fresh. The file is deleted on exit (/exit or q/Ctrl+C) to clean up, using try-catch for error handling. Its async file operations (via fs.promises) ensure non-blocking performance, and integration with extractCodeBlocksFromTempFile allows /copy and /save to retrieve the latest code blocks accurately. This makes the temporary chat file a robust backbone for persistent, unlimited-length interactions and session management across the application’s features.`, false);
+  appendMessage('ai', `The temporary chat file (.temp-chat.md), stored in the current working directory, is a critical component of the application, acting as a persistent log for all user queries, AI responses, plans, code blocks, and command outputs across all modes (code, webapp, dir, digest, editDir, askDir, shell). Initialized with initializeTempChatFile, it starts as a markdown file with a header and is appended to in real-time using appendMessage, ensuring no data loss even for lengthy LLM outputs that exceed memory buffer limits. This enables unlimited generation length, a key feature for handling complex responses like large codebases, detailed plans, or verbose shell command outputs (e.g., npm install logs). The file uses a structured format with ## User and ## AI headers to delineate interactions, making it human-readable and suitable for archiving via /savecon, which copies it to a timestamped file (e.g., chat-conversation-2025-04-14T12-00-00.md). In Dir Mode, it logs high-level plans, generated commands, and execution outputs (stdout/stderr), preserving automation workflows. In Shell Mode, it logs directly generated commands and their outputs, supporting unrestricted shell tasks. In EditDir Mode, it stores project overviews, proposed file changes, and user consents, ensuring traceability for batch edits. AskDir Mode logs conversational responses and project analyses, supporting in-depth codebase queries. The /loadcon command reloads a saved conversation, restoring code contexts for iterative development, while /clear reinitializes the file to start fresh. The file is deleted on exit (/exit or q/Ctrl+C) to clean up, using try-catch for error handling. Its async file operations (via fs.promises) ensure non-blocking performance, and integration with extractCodeBlocksFromTempFile allows /copy and /save to retrieve the latest code blocks accurately. This makes the temporary chat file a robust backbone for persistent, unlimited-length interactions and session management across the application’s features.`, false);
 }
 
 
@@ -2472,31 +2562,45 @@ async function handleInputSubmission(text) {
       case '/code':
         codeOnlyMode = !codeOnlyMode;
         webappOnlyMode = false;
-        shellMode = false;
+        dirMode = false;
         digestMode = false;
         editDirMode = false;
         askDirMode = false;
-        appendMessage('ai', `{green-fg}Code-only mode ${codeOnlyMode ? 'enabled' : 'disabled'}. Webapp, shell, digest, editdir, and askdir modes disabled.{/}`, false);
+        shellMode = false;
+        appendMessage('ai', `{green-fg}Code-only mode ${codeOnlyMode ? 'enabled' : 'disabled'}. Webapp, dir, digest, editdir, askdir, and shell modes disabled.{/}`, buffer);
         updateStatusBar();
         break;
       case '/webapp':
         webappOnlyMode = !webappOnlyMode;
         codeOnlyMode = false;
-        shellMode = false;
+        dirMode = false;
         digestMode = false;
         editDirMode = false;
         askDirMode = false;
-        appendMessage('ai', `{green-fg}Webapp-only mode ${webappOnlyMode ? 'enabled' : 'disabled'}. Code, shell, digest, editdir, and askdir modes disabled.{/}`, false);
+        shellMode = false;
+        appendMessage('ai', `{green-fg}Webapp-only mode ${webappOnlyMode ? 'enabled' : 'disabled'}. Code, dir, digest, editdir, askdir, and shell modes disabled.{/}`, false);
+        updateStatusBar();
+        break;
+      case '/dir':
+        dirMode = !dirMode;
+        codeOnlyMode = false;
+        webappOnlyMode = false;
+        digestMode = false;
+        editDirMode = false;
+        askDirMode = false;
+        shellMode = false;
+        appendMessage('ai', `{green-fg}Dir mode ${dirMode ? 'enabled' : 'disabled'}. Code, webapp, digest, editdir, askdir, and shell modes disabled.{/}`, false);
         updateStatusBar();
         break;
       case '/shell':
         shellMode = !shellMode;
         codeOnlyMode = false;
         webappOnlyMode = false;
+        dirMode = false;
         digestMode = false;
         editDirMode = false;
         askDirMode = false;
-        appendMessage('ai', `{green-fg}Shell mode ${shellMode ? 'enabled' : 'disabled'}. Code, webapp, digest, editdir, and askdir modes disabled.{/}`, false);
+        appendMessage('ai', `{green-fg}Shell mode ${shellMode ? 'enabled' : 'disabled'}. Code, webapp, dir, digest, editdir, and askdir modes disabled.{/}`, false);
         updateStatusBar();
         break;
       case '/digest':
@@ -2505,9 +2609,10 @@ async function handleInputSubmission(text) {
           digestMode = true;
           codeOnlyMode = false;
           webappOnlyMode = false;
-          shellMode = false;
+          dirMode = false;
           editDirMode = false;
           askDirMode = false;
+          shellMode = false;
           appendMessage('ai', '{green-fg}Digest mode enabled. Other modes disabled.{/}', false);
           updateStatusBar();
         } else if (digestArg === 'off') {

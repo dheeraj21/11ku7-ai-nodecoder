@@ -2,9 +2,9 @@
 
 A Shell-based AI coding assistant for generating code, web apps, creating, refactoring & querying codebases using Google Generative AI or OpenAI Compatible APIs.
 
-**Version :  1.0.5**
+**Version :  1.0.6**
 
-**What's new : added tailwind support but config file handling remains same in shell mode.**
+**What's new : corrected "one word per line" text rendering issue in chat area for some models, splitted shell mode into dir mode for codebase creation with planning, and shell mode to run shell commands without doing any planning.**
 
 **Official Repository** : https://github.com/dheeraj21/11ku7-ai-nodecoder
 

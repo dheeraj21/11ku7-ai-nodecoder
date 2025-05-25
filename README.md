@@ -21,9 +21,12 @@ Node.js 18+
 - **Webapp Mode**: Create and edit single-file HTML web apps with Tailwind CSS and JavaScript.
 
 #### Creating Codebases, Refactoring Codebases, Querying codebases
-- **Shell Mode**: Create Entire Codebases with Multiple files with AI-driven plans using shell mode.
+- **dir Mode**: Create Entire Codebases with Multiple files with AI-driven plans using dir mode.
 - **EditDir Mode**: Modify Entire Codebases with multiple files in a directory with AI-driven plans.
 - **AskDir Mode**: Querying project codebases without editing.
+
+#### Shell Commands
+- **Shell Mode**: Run shell commands using natural language queries.
 
 #### Analysis Tools
 - **Digest Mode**: Turn entire Codebases/Directory with Multiple files into a single text file.
@@ -104,7 +107,7 @@ node index.js
 
 - **/webapp**: Toggle webapp mode for creating HTML web apps.
 
-- **/shell**: Toggle shell mode for generating and executing bash commands as well as creating multifile projects
+- **/shell**: Toggle shell mode for generating and executing bash commands.
 
 - **/save** <filename>: Save code blocks from the last AI response to a file.
 
@@ -117,6 +120,8 @@ node index.js
 - **/digest [path]**: Toggle digest mode or analyze a directory/file (e.g., /digest ./my_project).
 
 - **/loadcon <filename>**: Load a saved chat conversation from a markdown file.
+
+- **/dir**: Toggle dir mode for creating multifile codebase
 
 - **/editdir <path>**: Load a directory for AI-driven file modifications.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-//corrected "one word per line" text rendering issue in chat area for some models, splitted shell mode into dir mode for codebase creation with planning, and shell mode to run shell commands without doing any planning 
-//11ku7-ai-nodecoder (version 1.0.6) (latest iteration == 18U2) 
+//editdir mode now supports version control added revert, forward, list version options and env file creation at start of program with placeholder if not found, ask for api key if not found, added logo.
+//11ku7-ai-nodecoder (version 1.0.7) (latest iteration == 18V1) 
 require('dotenv').config();
 const blessed = require('neo-blessed');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -66,7 +66,7 @@ marked.setOptions({
 // Create terminal screen
 const screen = blessed.screen({
   smartCSR: true,
-  title: '11ku7-ai-nodecoder (version 1.0.6)',
+  title: '11ku7-ai-nodecoder (version 1.0.7)',
   fullUnicode: false,
   autoPadding: true,
 });
@@ -261,7 +261,7 @@ const statusBar = blessed.text({
   left: 0,
   width: '100%',
   height: 4,
-  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.6){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
+  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.7){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
   tags: true,
   style: { fg: '#d4d4d4', bg: 'black' },
   hidden: true,
@@ -416,6 +416,23 @@ async function editDirectory(dirPath) {
       throw new Error('No valid text files found in directory');
     }
 
+    // Check for existing versions and save initial state if none exist
+    const versionsDir = path.join(currentWorkingDir, '.versions');
+    const versionInfoPath = path.join(versionsDir, `editdir_${dirPath}_versionInfo.json`);
+    let versionInfo = { currentVersion: -1, totalVersions: 0 };
+    try {
+      versionInfo = JSON.parse(await fs.readFile(versionInfoPath, 'utf8'));
+    } catch {
+      // No version info exists, save initial state as version 0
+      await fs.mkdir(versionsDir, { recursive: true });
+      const version0 = files.map(file => ({ path: file.path, content: file.content }));
+      const version0Path = path.join(versionsDir, `editdir_${dirPath}_v0.json`);
+      await fs.writeFile(version0Path, JSON.stringify({ timestamp: new Date().toISOString(), files: version0 }));
+      versionInfo = { currentVersion: 0, totalVersions: 1 };
+      await fs.writeFile(versionInfoPath, JSON.stringify(versionInfo));
+      appendMessage('ai', `{green-fg}Initial state saved as version 0 for ${dirPath}.{/}`, false);
+    }
+
     editDirContext = context;
     editDirPath = dirPath;
     editDirMode = true;
@@ -424,7 +441,104 @@ async function editDirectory(dirPath) {
     dirMode = false;
     shellMode = false;
     digestMode = false;
-    appendMessage('ai', `{green-fg}Directory ${dirPath} loaded for editing. File contents loaded into context.{/}`, false);
+    appendMessage('ai', `{green-fg}Directory ${dirPath} loaded for editing. File contents loaded into context. Version control active (current version: ${versionInfo.currentVersion}).{/}`, false);
+
+    // If more than one version exists, show version control options
+    if (versionInfo.totalVersions > 1) {
+      let versionAction = '';
+      while (versionAction !== 'c') {
+        appendMessage('ai', `{yellow-fg}Version control options: [r]evert, [f]orward, [l]ist versions, [c]ontinue (default):{/}`, false);
+        inputBox.clearValue();
+        inputBox.setValue('');
+        inputBox.focus();
+        screen.render();
+
+        // Clear existing submit listeners
+        inputBox.removeAllListeners('submit');
+
+        versionAction = await new Promise((resolve) => {
+          const actionHandler = (response) => {
+            inputBox.removeListener('submit', actionHandler);
+            resolve(response.trim().toLowerCase());
+          };
+          inputBox.once('submit', actionHandler);
+        });
+
+        if (versionAction === 'r') {
+          // Revert to previous version
+          if (versionInfo.currentVersion <= 0) {
+            appendMessage('ai', `{red-fg}No previous version available to revert to.{/}`, false);
+          } else {
+            const prevVersion = versionInfo.currentVersion - 1;
+            const prevVersionPath = path.join(versionsDir, `editdir_${dirPath}_v${prevVersion}.json`);
+            const prevVersionData = JSON.parse(await fs.readFile(prevVersionPath, 'utf8'));
+            let newContext = editDirContext;
+            for (const file of prevVersionData.files) {
+              const fullPath = path.join(currentWorkingDir, editDirPath, file.path);
+              await fs.writeFile(fullPath, file.content);
+              const regex = new RegExp(`File: ${file.path}\\n[\\s\\S]*?\\n\\n(?=File: |$)`, 'g');
+              const newContent = `File: ${file.path}\n${file.content}\n\n`;
+              if (newContext.match(regex)) {
+                newContext = newContext.replace(regex, newContent);
+              } else {
+                newContext += newContent;
+              }
+            }
+            editDirContext = newContext;
+            versionInfo.currentVersion = prevVersion;
+            await fs.writeFile(versionInfoPath, JSON.stringify(versionInfo));
+            appendMessage('ai', `{green-fg}Reverted to version ${prevVersion}.{/}`, false);
+            await updateTreeBox();
+          }
+        } else if (versionAction === 'f') {
+          // Move to next version
+          if (versionInfo.currentVersion >= versionInfo.totalVersions - 1) {
+            appendMessage('ai', `{red-fg}No next version available to move forward to.{/}`, false);
+          } else {
+            const nextVersion = versionInfo.currentVersion + 1;
+            const nextVersionPath = path.join(versionsDir, `editdir_${dirPath}_v${nextVersion}.json`);
+            const nextVersionData = JSON.parse(await fs.readFile(nextVersionPath, 'utf8'));
+            let newContext = editDirContext;
+            for (const file of nextVersionData.files) {
+              const fullPath = path.join(currentWorkingDir, editDirPath, file.path);
+              await fs.writeFile(fullPath, file.content);
+              const regex = new RegExp(`File: ${file.path}\\n[\\s\\S]*?\\n\\n(?=File: |$)`, 'g');
+              const newContent = `File: ${file.path}\n${file.content}\n\n`;
+              if (newContext.match(regex)) {
+                newContext = newContext.replace(regex, newContent);
+              } else {
+                newContext += newContent;
+              }
+            }
+            editDirContext = newContext;
+            versionInfo.currentVersion = nextVersion;
+            await fs.writeFile(versionInfoPath, JSON.stringify(versionInfo));
+            appendMessage('ai', `{green-fg}Moved forward to version ${nextVersion}.{/}`, false);
+            await updateTreeBox();
+          }
+        } else if (versionAction === 'l') {
+          // List all versions
+          let versionList = '';
+          for (let i = 0; i < versionInfo.totalVersions; i++) {
+            const versionPath = path.join(versionsDir, `editdir_${dirPath}_v${i}.json`);
+            const versionData = JSON.parse(await fs.readFile(versionPath, 'utf8'));
+            versionList += `Version ${i} (Created: ${versionData.timestamp})\n`;
+          }
+          appendMessage('ai', `{gray-fg}Available versions:\n${versionList}{/}`, false);
+        } else if (versionAction === 'c') {
+          // Continue with current version
+          appendMessage('ai', `{green-fg}Continuing with current version ${versionInfo.currentVersion}.{/}`, false);
+        } else {
+          // Invalid input, treat as continue
+          appendMessage('ai', `{gray-fg}Invalid option, continuing with current version ${versionInfo.currentVersion}.{/}`, false);
+          versionAction = 'c';
+        }
+      }
+
+      // Re-attach the main submit handler after exiting the loop
+      inputBox.removeAllListeners('submit');
+      inputBox.on('submit', handleInputSubmission);
+    }
 
     // Generate project overview
     const overviewPrompt = `You are a project analyst. Below is the content of files in a project directory "${dirPath}":\n\n${editDirContext}\n\nProvide a concise overview of the project, summarizing its purpose, main components, and technologies used, based on the file contents. Present the overview as a single paragraph in markdown format, avoiding lists or code blocks.`;
@@ -916,7 +1030,7 @@ function updateStatusBar() {
   else if (editDirMode) activeMode = 'editdir';
   else if (askDirMode) activeMode = 'askdir';
   statusBar.setContent(
-    `{green-fg}11ku7-ai-nodecoder (version 1.0.6){/}\n` +
+    `{green-fg}11ku7-ai-nodecoder (version 1.0.7){/}\n` +
     `{gray-fg}cwd: ${currentWorkingDir}\n/help for help, mode: ${activeMode}\n` +
     `{#1E90FF-fg}Researched {/}{#1E90FF-fg}& {/}{#1E90FF-fg}developed {/}{#1E90FF-fg}in {/}{#FF9933-fg}In{/}{#FFFFFF-fg}di{/}{#138808-fg}a {/}`
   );
@@ -2080,9 +2194,120 @@ function promptOpenAIModel(callback) {
   });
 }
 
+
+
+// Function to prompt for API key using a password-style input
+async function promptAPIKey(provider) {
+  const displayProvider = provider === 'OpenAI' ? 'OpenAI Compatible' : provider;
+  const apiKeyForm = blessed.form({
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: 1, // Single-line input without border
+    style: { bg: 'black' },
+  });
+
+  const apiKeyLabel = blessed.text({
+    parent: apiKeyForm,
+    top: 0,
+    left: 1,
+    content: `{gray-fg}Enter ${displayProvider} API Key (Ctrl+Shift+V/right-click to paste, Enter to skip): {/}`,
+    tags: true,
+  });
+
+  const apiKeyInput = blessed.textbox({
+    parent: apiKeyForm,
+    top: 0,
+    left: `Enter ${displayProvider} API Key (Ctrl+Shift+V/right-click to paste, Enter to skip): `.length + 3,
+    width: '100%-2',
+    height: 1,
+    inputOnFocus: true,
+    censor: true, // Mask input as asterisks
+    style: { fg: '#d4d4d4', bg: 'black' },
+  });
+
+  screen.append(apiKeyForm);
+  providerList.hide();
+  providerInstruction.hide();
+  modelList.hide();
+  modelInstruction.hide();
+  openAIBaseURLForm.hide();
+  openAIModelForm.hide();
+  saveConButton.hide();
+  multiLineInputBox.hide();
+  apiKeyInput.focus();
+  screen.render();
+
+  return new Promise((resolve) => {
+    apiKeyInput.removeAllListeners('submit');
+    apiKeyInput.on('submit', async (apiKey) => {
+      apiKey = apiKey.trim();
+      apiKeyForm.hide();
+      screen.remove(apiKeyForm);
+
+      if (!apiKey) {
+        // User skipped input by pressing Enter
+        resolve(false); // Indicate skip
+        return;
+      }
+
+      try {
+        // Read existing .env file
+        let envContent = '';
+        try {
+          envContent = await fs.readFile(path.join(process.cwd(), '.env'), 'utf8');
+        } catch {
+          envContent = '';
+        }
+
+        // Update or add the API key for the selected provider
+        let updatedEnv = '';
+        if (provider === 'Gemini') {
+          if (envContent.includes('GEMINI_API_KEY=')) {
+            updatedEnv = envContent.replace(/GEMINI_API_KEY=.*/g, `GEMINI_API_KEY="${apiKey}"`);
+          } else {
+            updatedEnv = envContent + (envContent ? '\n' : '') + `GEMINI_API_KEY="${apiKey}"`;
+          }
+        } else if (provider === 'OpenAI') {
+          if (envContent.includes('OPENAI_API_KEY=')) {
+            updatedEnv = envContent.replace(/OPENAI_API_KEY=.*/g, `OPENAI_API_KEY="${apiKey}"`);
+          } else {
+            updatedEnv = envContent + (envContent ? '\n' : '') + `OPENAI_API_KEY="${apiKey}"`;
+          }
+        }
+
+        // Write updated .env file
+        await fs.writeFile(path.join(process.cwd(), '.env'), updatedEnv);
+
+        // Immediately clear dotenv cache and reload environment variables
+        delete require.cache[require.resolve('dotenv')];
+        require('dotenv').config();
+
+        // Update in-memory environment variable
+        process.env[provider === 'Gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY'] = apiKey;
+
+        resolve(true); // Indicate key was provided
+      } catch (error) {
+        appendMessage('ai', `{red-fg}Error saving API key: ${error.message}{/}`, false);
+        resolve(false); // Treat error as skip to return to provider menu
+      }
+    });
+  });
+}
+
+
+
+
+
+
 // Function to initialize the chat assistant
 async function initializeChatAssistant(provider, modelName, baseURL = null) {
   currentProvider = provider;
+
+  // Reload .env file to ensure latest API keys
+  delete require.cache[require.resolve('dotenv')];
+  require('dotenv').config();
+
   if (provider === 'Gemini') {
     genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     currentModel = genAI.getGenerativeModel({ model: modelName });
@@ -2104,12 +2329,11 @@ async function initializeChatAssistant(provider, modelName, baseURL = null) {
   chatBox.show();
   treeBox.show();
   statusBar.show();
-  saveConButton.show(); // Show save conversation button
-  multiLineInputBox.show(); // Show multiline input box
+  saveConButton.show();
+  multiLineInputBox.show();
   chatBox.setContent(`{gray-fg}Chat started with ${provider} (${modelName})\nType a query or command above.{/}`);
   await initializeTempChatFile();
-  // Manually append to temp file without displaying in chatBox
-  await fs.appendFile(tempChatFile, `## AI\nChat started with ${provider} (${modelName})\nType a query or command above.\n\n`);
+  await fs.appendFile(tempChatFile, `## ${provider} (${modelName})\nChat started with ${provider}\nType a query or command above.\n\n`);
   updateStatusBar();
   await updateTreeBox();
   inputBox.focus();
@@ -2122,42 +2346,119 @@ function changeModel() {
 }
 
 // Function to setup provider selection
-function setupProviderSelection() {
-  availableModels = [];
-  providerList.setItems(['{blue-fg}Gemini{/}', '{blue-fg}OpenAI Compatible{/}']);
-  providerInstruction.setContent('{gray-fg}Use arrow keys to select a provider, then press Enter.{/}');
-  inputForm.hide();
-  chatBox.hide();
-  treeBox.hide();
-  statusBar.hide();
-  modelList.hide();
-  modelInstruction.hide();
-  openAIBaseURLForm.hide();
-  openAIModelForm.hide();
-  saveConButton.hide(); // Hide save conversation button
-  multiLineInputBox.hide(); // Hide multiline input box
-  providerList.show();
-  providerInstruction.show();
-  providerList.focus();
+async function setupProviderSelection() {
+  // Check if .env file exists, create with placeholders if missing
+  const envPath = path.join(process.cwd(), '.env');
+  try {
+    await fs.access(envPath);
+  } catch {
+    await fs.writeFile(envPath, 'GEMINI_API_KEY="your_gemini_api_key"\nOPENAI_API_KEY="your_openai_api_key"\n');
+  }
+
+  // Load environment variables
+  require('dotenv').config();
+
+  // Create ASCII logo screen
+  const logoBox = blessed.box({
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    content: `{green-fg}
+
+               ██╗ ██╗██╗  ██╗██╗   ██╗███████╗     █████╗ ██╗
+              ███║███║██║ ██╔╝██║   ██║╚════██║    ██╔══██╗██║
+              ╚██║╚██║█████╔╝ ██║   ██║    ██╔╝    ███████║██║
+               ██║ ██║██╔═██╗ ██║   ██║   ██╔╝     ██╔══██║██║
+               ██║ ██║██║  ██╗╚██████╔╝   ██║      ██║  ██║██║
+               ╚═╝ ╚═╝╚═╝  ╚═╝ ╚═════╝    ╚═╝      ╚═╝  ╚═╝╚═╝
+
+  ███╗   ██╗ ██████╗ ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗██████╗
+  ████╗  ██║██╔═══██╗██╔══██╗██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝██╔══██╗
+  ██╔██╗ ██║██║   ██║██║  ██║█████╗  ██║     ██║   ██║██║  ██║█████╗  ██████╔╝
+  ██║╚██╗██║██║   ██║██║  ██║██╔══╝  ██║     ██║   ██║██║  ██║██╔══╝  ██╔══██╗
+  ██║ ╚████║╚██████╔╝██████╔╝███████╗╚██████╗╚██████╔╝██████╔╝███████╗██║  ██║
+  ╚═╝  ╚═══╝ ╚═════╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
+{/}
+{gray-fg}   \n\nPress Enter to continue...{/}`,
+    tags: true,
+    style: { bg: 'black' },
+  });
+
+  screen.append(logoBox);
+  logoBox.focus();
   screen.render();
 
-  providerList.removeAllListeners('select');
-  providerList.on('select', (item, index) => {
-    const selectedProvider = index === 0 ? 'Gemini' : 'OpenAI';
-    if (selectedProvider === 'Gemini') {
-      setupGeminiModelSelection((selectedModel) => {
-        initializeChatAssistant('Gemini', selectedModel);
-        appendMessage('ai', `{green-fg}Provider changed to Gemini (${selectedModel}) successfully, continue chatting.{/}`, false);
-      });
-    } else {
-      promptOpenAIModel((modelName, baseURL) => {
-        initializeChatAssistant('OpenAI', modelName, baseURL);
-        appendMessage('ai', `{green-fg}Provider changed to OpenAI Compatible (${modelName}) successfully, continue chatting.{/}`, false);
-      });
-    }
-    providerList.removeAllListeners('select');
+  // Wait for Enter key
+  logoBox.key(['enter'], () => {
+    screen.remove(logoBox);
+    showProviderSelection();
   });
+
+  function showProviderSelection() {
+    availableModels = [];
+    providerList.setItems(['{blue-fg}Gemini{/}', '{blue-fg}OpenAI Compatible{/}']);
+    providerInstruction.setContent('{gray-fg}Use arrow keys to select a provider, then press Enter.{/}');
+    inputForm.hide();
+    chatBox.hide();
+    treeBox.hide();
+    statusBar.hide();
+    modelList.hide();
+    modelInstruction.hide();
+    openAIBaseURLForm.hide();
+    openAIModelForm.hide();
+    saveConButton.hide();
+    multiLineInputBox.hide();
+    providerList.show();
+    providerInstruction.show();
+    providerList.focus();
+    screen.render();
+
+    providerList.removeAllListeners('select');
+    providerList.on('select', async (item, index) => {
+      const selectedProvider = index === 0 ? 'Gemini' : 'OpenAI';
+      
+      // Reload .env file to ensure latest API keys
+      delete require.cache[require.resolve('dotenv')];
+      require('dotenv').config();
+
+      // Check API key for selected provider
+      const apiKey = selectedProvider === 'Gemini' ? process.env.GEMINI_API_KEY : process.env.OPENAI_API_KEY;
+      const isInvalidKey = !apiKey || apiKey === `your_${selectedProvider.toLowerCase()}_api_key` || apiKey === '';
+
+      if (selectedProvider === 'Gemini') {
+        if (isInvalidKey) {
+          const keyProvided = await promptAPIKey(selectedProvider);
+          if (!keyProvided) {
+            // User skipped or error, return to provider selection
+            setupProviderSelection();
+            return;
+          }
+        }
+        setupGeminiModelSelection((selectedModel) => {
+          initializeChatAssistant('Gemini', selectedModel);
+          appendMessage('ai', `{green-fg}Provider changed to Gemini (${selectedModel}) successfully, continue chatting.{/}`, false);
+        });
+      } else {
+        promptOpenAIModel(async (modelName, baseURL) => {
+          // Prompt for API key after base URL and model name
+          if (isInvalidKey) {
+            const keyProvided = await promptAPIKey('OpenAI');
+            if (!keyProvided) {
+              // User skipped or error, return to provider selection
+              setupProviderSelection();
+              return;
+            }
+          }
+          initializeChatAssistant('OpenAI', modelName, baseURL);
+          appendMessage('ai', `{green-fg}Provider changed to OpenAI Compatible (${modelName}) successfully, continue chatting.{/}`, false);
+        });
+      }
+      providerList.removeAllListeners('select');
+    });
+  }
 }
+
 
 // Handle AI response (Gemini or OpenAI)
 async function getAIResponse(query) {
@@ -2448,7 +2749,7 @@ function describeModesAndCommands() {
 
   const commandDescriptions = {
     '/copy': `The /copy command extracts all code blocks from the latest AI response and attempts to copy them to the system clipboard, or saves them to temp-clipboard.txt if clipboard access fails (e.g., non-Termux environments). In Termux, it uses termux-clipboard-set, requiring Termux:API. This command is useful for quickly transferring generated code to other applications or files. It reads the temporary chat file (.temp-chat.md) to find the last AI response, extracts code using regex-based parsing, and combines blocks with newlines. Execute /copy after an AI response containing code (e.g., from code or webapp mode) to use it. The chat area confirms success or failure, and no arguments are needed.`,
-    '/clear': `The /clear.Monthly subscription plan for grok.com that offers users higher Grok 3 usage quotas than the free plan.clear command resets the chat interface, clearing the chat area, code blocks, and loaded contexts (e.g., loadedCodeContext, askCodeContext). It reinitializes the temporary chat file (.temp-chat.md) and sets the chat area to a default message indicating the current provider and model. This is useful for starting a fresh conversation without exiting the application. It preserves the current provider/model and directory state but resets modes like digest or conversation loading. Simply type /clear to execute, and the chat area will confirm the action. No arguments are required, and it works in any mode.`,
+    '/clear': `The /clear command resets the chat interface, clearing the chat area, code blocks, and loaded contexts (e.g., loadedCodeContext, askCodeContext). It reinitializes the temporary chat file (.temp-chat.md) and sets the chat area to a default message indicating the current provider and model. This is useful for starting a fresh conversation without exiting the application. It preserves the current provider/model and directory state but resets modes like digest or conversation loading. Simply type /clear to execute, and the chat area will confirm the action. No arguments are required, and it works in any mode.`,
     '/exit': `The /exit command terminates the application, deleting the temporary chat file (.temp-chat.md) to clean up. It’s used to gracefully close the program, ensuring no residual files remain. Executing /exit triggers process.exit(0), stopping all operations. Type /exit in the input box to use it; no arguments are needed. The command is available in any mode and doesn’t affect the filesystem beyond removing the temp file. It’s implemented with a try-catch to handle file deletion errors silently, ensuring a smooth exit.`,
     '/help': `The /help command displays a concise list of all available commands and key bindings in the chat area, formatted with blue command names and descriptions. It’s designed to provide quick reference for users unfamiliar with the interface’s functionality. The command iterates through the commands and keyBindings objects, using blessed’s tag syntax for styling, and outputs via appendMessage. Type /help to view the list, with no arguments required. It works in any mode and doesn’t alter state, making it a safe way to explore the interface’s capabilities without side effects.`,
     '/model': `The /model command allows switching the AI provider or model mid-conversation, returning the user to the provider selection screen (Gemini or OpenAI Compatible). For Gemini, it fetches available models via the Google Generative AI API; for OpenAI, it prompts for a base URL and model name. This is useful for testing different models or APIs without restarting. Type /model to initiate, hiding the chat interface and showing the selection UI. The command resets the chat state but preserves the working directory, and the new provider/model is confirmed in the chat area upon selection.`,
@@ -2462,9 +2763,9 @@ function describeModesAndCommands() {
     '/savecon': `The /savecon command saves the entire chat conversation to a markdown file named chat-conversation-<timestamp>.md in the working directory. It’s useful for archiving discussions, including user queries and AI responses, for later review or sharing. The command reads the temporary chat file (.temp-chat.md) and writes it to the new file, updating the tree view. Type /savecon with no arguments to execute. The chat area confirms the save, and the file is formatted with ## User and ## AI headers. It works in any mode and doesn’t affect the current session.`,
     '/digest': `The /digest command manages digest mode, which analyzes project directories or files. Use /digest <path> to process a local path or git URL, generating a directory tree and file contents in digest_output.txt, or /digest on/off to toggle the mode. When active, queries use the digested content as context for project analysis. The command supports limits (e.g., 10MB files) and ignore patterns, displaying results in the chat area. It’s ideal for understanding codebases, cloning remote repos temporarily if needed. The tree view updates, and the mode disables other modes for focused analysis.`,
     '/loadcon': `The /loadcon <filename> command loads a saved markdown conversation file (e.g., from /savecon) into the chat area, restoring user and AI messages. It’s useful for resuming past sessions or reviewing archived chats. Type /loadcon chat-conversation-2025-04-14T12-00-00.md with the filename. The command clears the current chat, reinitializes the temp file, and extracts the last code block for code/webapp mode context. It confirms success or failure in the chat area, updates the tree view, and works in any mode without altering the filesystem beyond the temp file.`,
-    '/editdir': `The /editdir <path> command initiates editDir mode, loading a directory’s text files into editDirContext for AI-driven modifications. Queries prompt the AI to propose file changes in \`\`\` blocks, requiring user consent (y/n) before updating the filesystem. It’s designed for batch edits, like refactoring multiple files. Type /editdir ./my_project to start, then query changes (e.g., "add error handling"). The chat area shows proposals and results, and the tree view updates. The mode disables others, uses async directory scanning, and confirms actions, ensuring precise file updates.`,
-    '/askdir': `The /askdir <path> command starts askDir mode, loading a directory’s text files into askDirContext for answering questions without edits. It’s ideal for analyzing project structure or debugging, with queries like "what does main.py do?" answered using the file context. Type /askdir ./my_project to load the directory. The chat area displays the loaded context and responses, with no filesystem changes. The mode disables others, uses the AI provider for detailed answers, and updates the tree view. It leverages async directory scanning for accurate content loading.`,
-    '/desc': `The /desc command provides detailed paragraph descriptions of all modes, commands, and key bindings, covering their purpose, usage, and functionality. It’s designed to help users understand the interface’s capabilities in depth, displaying each description in the chat area. Type /desc with no arguments to execute. The command iterates through modes (code, webapp, dir, digest, editDir, askDir, shell), the commands object, and key bindings, using predefined descriptions. It works in any mode, doesn’t alter state, and formats output with blessed tags for readability, serving as a comprehensive guide to the application’s features.`
+    '/editdir': `The /editdir <path> command initiates EditDir mode, loading a directory’s text files into editDirContext for AI-driven batch modifications, ideal for refactoring, adding features, or updating multiple files (e.g., "add error handling to all Python files"). Activated by specifying a directory path, it scans the directory asynchronously, disables other modes, and updates the status bar to 'editdir' mode. If multiple versions exist in the .versions folder (more than version 0), it prompts version control options ([r]evert to previous version, [f]orward to next version, [l]ist versions, [c]ontinue) at the start, allowing users to navigate version history before editing; this prompt loops until [c] is selected. If no .versions folder exists or only version 0 is present, it saves the initial state as version 0 and skips the prompt. The AI generates a conversational project overview (e.g., "This project is a Node.js app with Express...") and responds to queries by proposing a high-level plan in a markdown paragraph, outlining file changes (e.g., "Let's update main.py to add try-catch blocks..."). Users approve (y), reject (N), or cancel the plan, or request modifications, which the AI incorporates recursively. Approved plans trigger updated file contents in \`\`\` blocks labeled with file paths, requiring user consent (y/n) before writing to the filesystem. After applying changes, version control options reappear to allow users to revert, forward, or list changes, until the user selects ‘c’ to continue. Modified files are saved as a new version, reverting context in editDirContext, logged in the temporary chat file (.temp-chat.md) for unlimited LLM outputs, and the folder tree view updates to reflect changes. If changes fail to apply correctly, users can revert to the previous version. Version history persists across sessions, allowing for navigation through changes made in previous edits (e.g., after days). The editDir mode uses asynchronous file operations and the current provider (Gemini or OpenAI) for precise, reliable, and traceable code updates, making it a powerful tool for large-scale codebase management and iterative development tasks.`,
+    '/askdir': `The /askdir command starts askDir mode, loading a directory’s text files into askDirContext for answering questions without edits. It’s ideal for analyzing project structure or debugging, with queries like multiline queries answered using "what does main.py do?". Type /askdir ./my_project to load the directory. The chat area displays the loaded context and responses, with no filesystem changes. The mode disables other modes, uses the AI provider for detailed answers, and updates the tree view. It leverages async directory scanning for accurate content loading.`,
+    '/desc': `The /desc command provides detailed paragraph descriptions of all modes, commands, and key bindings, covering their purpose, usage, and functionality. It’s designed to help users understand the interface’s capabilities in depth, displaying each description in the chat area. Type /desc with no arguments to execute. The command iterates through modes (code, webapp, dir, mode descriptions), the commands object, and key bindings, using predefined descriptions. It works in any mode, doesn’t alter state, and formats output with blessed tags for readability, serving as a comprehensive guide to the application’s features.`
   };
 
   const keyBindingDescriptions = {
@@ -2472,32 +2773,32 @@ function describeModesAndCommands() {
     'i': `The i key refocuses the single-line input box (inputBox), allowing users to resume typing queries or commands. It’s useful when navigating other UI elements (e.g., tree or chat area) and needing to return to input mode quickly. Press i from any focused element (treeBox, chatBox, saveConButton) to activate the input box. The input box supports command entry (e.g., /save) or AI queries, and pressing Enter submits the input for processing. This key binding ensures rapid access to the primary interaction point, streamlining user input in the terminal UI.`,
     'c': `The c key shifts focus to the chat area (chatBox), enabling scrolling through conversation history using arrow keys (Up/k, Down/j). It’s designed for reviewing past messages, AI responses, or code outputs without altering the input focus. Press c from any UI element to focus the chat area. While focused, the chat area supports mouse and keyboard scrolling, and clicking reverts focus. This key binding is ideal for users needing to inspect long responses or navigate conversation context, maintaining the chat’s readability within the blessed terminal interface.`,
     's': `The s key focuses the save conversation button (saveConButton), a graphical yes/no list below the folder tree. It allows users to save the current chat session to a markdown file by selecting ‘Yes’ or cancel with ‘No’ using arrow keys and Enter. Press s from any UI element to activate the button. The save action triggers the saveConversation function, creating a file like chat-conversation-<timestamp>.md. This key binding provides a quick, graphical alternative to the /savecon command, enhancing usability for saving chats without typing.`,
-    'm': `The m key focuses the multiline input box (multiLineInputBox), located above the save conversation button, designed for entering complex or lengthy inputs, such as detailed AI queries or error stack traces. It’s particularly powerful for pasting errors (e.g., npm errors, Python tracebacks) directly into the box, which can then be submitted as a query to the AI for troubleshooting solutions (e.g., "fix this error: <pasted traceback>"). Press m from any UI element to activate the box, which supports multiple lines and combines with the single-line input box upon submission with Enter. The AI processes the input using the current provider, and responses are stored in the temporary chat file (.temp-chat.md) for unlimited length. This key binding enhances debugging workflows by allowing users to leverage the AI’s problem-solving capabilities with minimal effort, making it ideal for resolving runtime or build issues.`,
+    'm': `The m key focuses the multiline input box (multiLineInputBox), located above the save conversation button, designed for entering complex or lengthy inputs, such as detailed AI queries or error stack traces. pensioneers. It is particularly powerful for pasting errors (e.g., npm errors, Python tracebacks) directly into the box, which can then be submitted as a query to the AI for troubleshooting solutions (e.g., "fix this error: <pasted traceback>"). Press m from any UI element to activate the box, which supports multiple lines and combines with the single-line input box upon submission with Enter. The AI processes the input using the current provider, and responses are synced with the server in real-time sync, ensuring seamless performance. This mode enhances debugging workflows by allowing users to leverage the AI’s problem-solving capabilities with minimal effort, making it ideal for resolving runtime or build issues.`,
     'q or Ctrl+C': `The q or Ctrl+C key binding exits the application, deleting the temporary chat file (.temp-chat.md) to clean up. It’s designed for quick termination, equivalent to the /exit command, ensuring no residual files remain. Press q or Ctrl+C from any UI element to trigger process.exit(0). The binding is registered on the screen object, making it globally accessible, and uses a try-catch to handle file deletion errors silently. This key binding provides a standard terminal shortcut for exiting, maintaining consistency with command-line conventions.`,
-    'Up/k (in chat)': `The Up or k key, when the chat area (chatBox) is focused, scrolls the conversation history upward by one line. It’s designed to navigate through previous messages, AI responses, or code blocks, especially in long conversations. Focus the chat area with the c key, then press Up or k to scroll up. The chat area uses blessed’s scrollable box, ensuring smooth navigation, and the binding works with mouse scrolling. This key binding enhances usability for reviewing earlier parts of the chat, maintaining context without leaving the UI.`,
-    'Down/j (in chat)': `The Down or j key, when the chat area (chatBox) is focused, scrolls the conversation history downward by one line. It’s used to move through recent messages or AI outputs in the chat area, complementing the Up/k binding. Focus the chat area with c, then press Down or j to scroll down. The binding leverages blessed’s scrollable box for seamless navigation, supporting mouse scrolling as well. This key binding ensures users can easily access the latest or intermediate chat content, improving interaction with the conversation history.`,
+    'Up/k (in chat)': `The Up or k key, when the chat area (chatBox) is focused, scrolls the conversation history upward by one line. It’s designed to navigate through previous messages, AI responses, or code blocks, especially in long conversations. Focus the chat area with c, then press Up or k to scroll up. The chat area uses blessed’s scrollable box, ensuring smooth navigation, and the binding works with mouse scrolling. This key binding enhances usability for reviewing earlier parts of the chat, maintaining context without leaving the UI.`,
+    'Down/j (in chat)': `The Down or j key, when the chat area (chatBox) is focused, scrolls the conversation history downward by one line. It’s used to move through recent messages or AI outputs in the chat area, complementing the Up/k binding. Focus the chat area with c, then Down or j to scroll down. The binding leverages the blessed’s scrollable box for seamless navigation, supporting mouse scrolling as well. This key binding ensures users can easily access the latest or intermediate chat content, improving interaction with the conversation history.`,
     'Enter (in tree)': `The Enter key, when the folder tree (treeBox) is focused, toggles folder expansion/collapse or displays/hides file content. For directories, it expands (shows subitems) or collapses them, updating the tree view; for files, it appends the file path to the input box and toggles displaying the file’s content in the chat area. Focus the tree with Esc, navigate with arrow keys, and press Enter on a folder or file. The binding uses the toggleFolder function, which updates folderState and the tree UI. This key binding simplifies filesystem interaction, enabling quick file access and navigation.`
-  };
+  }
 
   // Display note
-  appendMessage('ai', `{bold}{yellow-fg}${note}{/}\n`, false);
+  appendMessage('ai', `{bold}${note}{/}\n`, false);
 
   // Display mode descriptions
   appendMessage('ai', '{bold}{gray-fg}Modes:{/}', false);
-  for (const [mode, description] of Object.entries(modeDescriptions)) {
-    appendMessage('ai', `{blue-fg}${mode}:{/}\n${description}\n`, false);
+  for (const [mode, line] of Object.entries(modeDescriptions)) {
+    appendMessage('ai', `{blue-fg}${mode}:{/}\n${line}\n`, false);
   }
 
   // Display command descriptions
   appendMessage('ai', '{bold}{gray-fg}Commands:{/}', false);
-  for (const [cmd, description] of Object.entries(commandDescriptions)) {
-    appendMessage('ai', `{blue-fg}${cmd}:{/}\n${description}\n`, false);
+  for (const [key, line] of Object.entries(commandDescriptions)) {
+    appendMessage('ai', `{blue-fg}${key}:{/}\n${line}\n`, false);
   }
 
   // Display key binding descriptions
   appendMessage('ai', '{bold}{gray-fg}Key Bindings:{/}', false);
-  for (const [key, description] of Object.entries(keyBindingDescriptions)) {
-    appendMessage('ai', `{blue-fg}${key}:{/}\n${description}\n`, false);
+  for (const [key, line] of Object.entries(keyBindingDescriptions)) {
+    appendMessage('ai', `{blue-fg}${key}:{/}\n${line}\n`, false);
   }
 
   // Display temporary chat file description
@@ -2939,6 +3240,11 @@ async function proposeEditDirPlan(query, dirPath, latestPlan = '') {
           return;
         }
 
+        // Load version info
+        const versionsDir = path.join(currentWorkingDir, '.versions');
+        const versionInfoPath = path.join(versionsDir, `editdir_${dirPath}_versionInfo.json`);
+        let versionInfo = JSON.parse(await fs.readFile(versionInfoPath, 'utf8'));
+
         // Update editDirContext and write to filesystem
         let updatedContext = editDirContext;
         for (const file of modifiedFiles) {
@@ -2951,26 +3257,183 @@ async function proposeEditDirPlan(query, dirPath, latestPlan = '') {
           }
         }
 
-        for (const file of modifiedFiles) {
-          const fullPath = path.join(currentWorkingDir, editDirPath, file.path);
-          await fs.mkdir(path.dirname(fullPath), { recursive: true });
-          await fs.writeFile(fullPath, file.content);
-        }
-
-        editDirContext = updatedContext;
-        editDirModified = true; // Mark directory as modified
-
-        // Update tree and notify user
-        await updateTreeBox();
-        appendMessage('ai', `{green-fg}Directory modified. ${modifiedFiles.length} file(s) updated.{/}`, false);
-        appendMessage('ai', `Modified files:\n${modifiedFiles.length > 0 ? modifiedFiles.map(f => f.path).join('\n') : 'None'}`, false);
-        if (modifiedFiles.length > 0) {
-          let modifiedPreview = '';
+        try {
           for (const file of modifiedFiles) {
-            const lang = path.extname(file.path).slice(1) || 'text';
-            modifiedPreview += `File: ${file.path}\n\`\`\`${lang}\n${file.content.slice(0, 5000)}${file.content.length > 5000 ? '...' : ''}\n\`\`\`\n\n`;
+            const fullPath = path.join(currentWorkingDir, editDirPath, file.path);
+            await fs.mkdir(path.dirname(fullPath), { recursive: true });
+            await fs.writeFile(fullPath, file.content);
           }
-          appendMessage('ai', `Modified files preview:\n${modifiedPreview}`, false);
+
+          // Save the new version
+          const newVersion = versionInfo.totalVersions;
+          const versionPath = path.join(versionsDir, `editdir_${dirPath}_v${newVersion}.json`);
+          await fs.writeFile(versionPath, JSON.stringify({ timestamp: new Date().toISOString(), files: modifiedFiles }));
+          versionInfo.currentVersion = newVersion;
+          versionInfo.totalVersions = newVersion + 1;
+          await fs.writeFile(versionInfoPath, JSON.stringify(versionInfo));
+
+          editDirContext = updatedContext;
+          editDirModified = true; // Mark directory as modified
+
+          // Update tree and notify user
+          await updateTreeBox();
+          appendMessage('ai', `{green-fg}Directory modified. ${modifiedFiles.length} file(s) updated. Saved as version ${newVersion}.{/}`, false);
+          appendMessage('ai', `Modified files:\n${modifiedFiles.length > 0 ? modifiedFiles.map(f => f.path).join('\n') : 'None'}`, false);
+          if (modifiedFiles.length > 0) {
+            let modifiedPreview = '';
+            for (const file of modifiedFiles) {
+              const lang = path.extname(file.path).slice(1) || 'text';
+              modifiedPreview += `File: ${file.path}\n\`\`\`${lang}\n${file.content.slice(0, 5000)}${file.content.length > 5000 ? '...' : ''}\n\`\`\`\n\n`;
+            }
+            appendMessage('ai', `Modified files preview:\n${modifiedPreview}`, false);
+          }
+
+          // Prompt user for version control actions in a loop until 'c' is selected
+          let versionAction = '';
+          while (versionAction !== 'c') {
+            appendMessage('ai', `{yellow-fg}Version control options: [r]evert, [f]orward, [l]ist versions, [c]ontinue (default):{/}`, false);
+            inputBox.clearValue();
+            inputBox.setValue('');
+            inputBox.focus();
+            screen.render();
+
+            // Clear existing submit listeners
+            inputBox.removeAllListeners('submit');
+
+            versionAction = await new Promise((resolve) => {
+              const actionHandler = (response) => {
+                inputBox.removeListener('submit', actionHandler);
+                resolve(response.trim().toLowerCase());
+              };
+              inputBox.once('submit', actionHandler);
+            });
+
+            if (versionAction === 'r') {
+              // Revert to previous version
+              if (versionInfo.currentVersion <= 0) {
+                appendMessage('ai', `{red-fg}No previous version available to revert to.{/}`, false);
+              } else {
+                const prevVersion = versionInfo.currentVersion - 1;
+                const prevVersionPath = path.join(versionsDir, `editdir_${dirPath}_v${prevVersion}.json`);
+                const prevVersionData = JSON.parse(await fs.readFile(prevVersionPath, 'utf8'));
+                let newContext = editDirContext;
+                for (const file of prevVersionData.files) {
+                  const fullPath = path.join(currentWorkingDir, editDirPath, file.path);
+                  await fs.writeFile(fullPath, file.content);
+                  const regex = new RegExp(`File: ${file.path}\\n[\\s\\S]*?\\n\\n(?=File: |$)`, 'g');
+                  const newContent = `File: ${file.path}\n${file.content}\n\n`;
+                  if (newContext.match(regex)) {
+                    newContext = newContext.replace(regex, newContent);
+                  } else {
+                    newContext += newContent;
+                  }
+                }
+                editDirContext = newContext;
+                versionInfo.currentVersion = prevVersion;
+                await fs.writeFile(versionInfoPath, JSON.stringify(versionInfo));
+                appendMessage('ai', `{green-fg}Reverted to version ${prevVersion}.{/}`, false);
+                await updateTreeBox();
+              }
+            } else if (versionAction === 'f') {
+              // Move to next version
+              if (versionInfo.currentVersion >= versionInfo.totalVersions - 1) {
+                appendMessage('ai', `{red-fg}No next version available to move forward to.{/}`, false);
+              } else {
+                const nextVersion = versionInfo.currentVersion + 1;
+                const nextVersionPath = path.join(versionsDir, `editdir_${dirPath}_v${nextVersion}.json`);
+                const nextVersionData = JSON.parse(await fs.readFile(nextVersionPath, 'utf8'));
+                let newContext = editDirContext;
+                for (const file of nextVersionData.files) {
+                  const fullPath = path.join(currentWorkingDir, editDirPath, file.path);
+                  await fs.writeFile(fullPath, file.content);
+                  const regex = new RegExp(`File: ${file.path}\\n[\\s\\S]*?\\n\\n(?=File: |$)`, 'g');
+                  const newContent = `File: ${file.path}\n${file.content}\n\n`;
+                  if (newContext.match(regex)) {
+                    newContext = newContext.replace(regex, newContent);
+                  } else {
+                    newContext += newContent;
+                  }
+                }
+                editDirContext = newContext;
+                versionInfo.currentVersion = nextVersion;
+                await fs.writeFile(versionInfoPath, JSON.stringify(versionInfo));
+                appendMessage('ai', `{green-fg}Moved forward to version ${nextVersion}.{/}`, false);
+                await updateTreeBox();
+              }
+            } else if (versionAction === 'l') {
+              // List all versions
+              let versionList = '';
+              for (let i = 0; i < versionInfo.totalVersions; i++) {
+                const versionPath = path.join(versionsDir, `editdir_${dirPath}_v${i}.json`);
+                const versionData = JSON.parse(await fs.readFile(versionPath, 'utf8'));
+                versionList += `Version ${i} (Created: ${versionData.timestamp})\n`;
+              }
+              appendMessage('ai', `{gray-fg}Available versions:\n${versionList}{/}`, false);
+            } else if (versionAction === 'c') {
+              // Continue with current changes
+              appendMessage('ai', `{green-fg}Continuing with current changes (version ${versionInfo.currentVersion}).{/}`, false);
+            } else {
+              // Invalid input, treat as continue
+              appendMessage('ai', `{gray-fg}Invalid option, continuing with current changes (version ${versionInfo.currentVersion}).{/}`, false);
+              versionAction = 'c';
+            }
+          }
+
+          // Re-attach the main submit handler after exiting the loop
+          inputBox.removeAllListeners('submit');
+          inputBox.on('submit', handleInputSubmission);
+
+        } catch (error) {
+          appendMessage('ai', `{red-fg}Error applying changes: ${error.message}{/}`, false);
+          appendMessage('ai', `{yellow-fg}Do you want to revert to the previous version? (y/n):{/}`, false);
+          inputBox.clearValue();
+          inputBox.setValue('');
+          inputBox.focus();
+          screen.render();
+
+          // Clear existing submit listeners
+          inputBox.removeAllListeners('submit');
+
+          const revertConsent = await new Promise((resolve) => {
+            const revertHandler = (response) => {
+              inputBox.removeListener('submit', revertHandler);
+              resolve(response.trim().toLowerCase());
+            };
+            inputBox.once('submit', revertHandler);
+          });
+
+          // Re-attach the main submit handler
+          inputBox.removeAllListeners('submit');
+          inputBox.on('submit', handleInputSubmission);
+
+          if (revertConsent === 'y') {
+            if (versionInfo.currentVersion <= 0) {
+              appendMessage('ai', `{red-fg}No previous version available to revert to.{/}`, false);
+            } else {
+              const prevVersion = versionInfo.currentVersion - 1;
+              const prevVersionPath = path.join(versionsDir, `editdir_${dirPath}_v${prevVersion}.json`);
+              const prevVersionData = JSON.parse(await fs.readFile(prevVersionPath, 'utf8'));
+              let newContext = editDirContext;
+              for (const file of prevVersionData.files) {
+                const fullPath = path.join(currentWorkingDir, editDirPath, file.path);
+                await fs.writeFile(fullPath, file.content);
+                const regex = new RegExp(`File: ${file.path}\\n[\\s\\S]*?\\n\\n(?=File: |$)`, 'g');
+                const newContent = `File: ${file.path}\n${file.content}\n\n`;
+                if (newContext.match(regex)) {
+                  newContext = newContext.replace(regex, newContent);
+                } else {
+                  newContext += newContent;
+                }
+              }
+              editDirContext = newContext;
+              versionInfo.currentVersion = prevVersion;
+              await fs.writeFile(versionInfoPath, JSON.stringify(versionInfo));
+              appendMessage('ai', `{green-fg}Reverted to version ${prevVersion} due to error.{/}`, false);
+              await updateTreeBox();
+            }
+          } else {
+            appendMessage('ai', `{gray-fg}No revert performed. Current changes retained.{/}`, false);
+          }
         }
       } else {
         appendMessage('ai', `{gray-fg}No files need modification for the request.{/}`, false);

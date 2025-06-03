@@ -2,9 +2,9 @@
 
 A Shell-based AI coding assistant for generating code, web apps, creating, refactoring & querying codebases using Google Generative AI or OpenAI Compatible APIs.
 
-**Version :  1.0.7**
+**Version :  1.0.8**
 
-**What's new : editdir mode now supports version control added revert, forward, list version options also added functionality for env file creation at start of program with placeholder if not found, ask for api key if not found, added logo.**
+**What's new : plan prompt and revised plan prompt are now according to files present in context in editdir mode.**
 
 **Official Repository** : https://github.com/dheeraj21/11ku7-ai-nodecoder
 

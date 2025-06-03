@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-//editdir mode now supports version control added revert, forward, list version options and env file creation at start of program with placeholder if not found, ask for api key if not found, added logo.
-//11ku7-ai-nodecoder (version 1.0.7) (latest iteration == 18V1) 
+//plan prompt and revised plan prompt are now according to files present in context in editdir mode.
+//11ku7-ai-nodecoder (version 1.0.8) (latest iteration == 18W1) 
 require('dotenv').config();
 const blessed = require('neo-blessed');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
@@ -66,7 +66,7 @@ marked.setOptions({
 // Create terminal screen
 const screen = blessed.screen({
   smartCSR: true,
-  title: '11ku7-ai-nodecoder (version 1.0.7)',
+  title: '11ku7-ai-nodecoder (version 1.0.8)',
   fullUnicode: false,
   autoPadding: true,
 });
@@ -261,7 +261,7 @@ const statusBar = blessed.text({
   left: 0,
   width: '100%',
   height: 4,
-  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.7){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
+  content: `{green-fg}11ku7-ai-nodecoder (version 1.0.8){/}\ncwd: ${process.cwd()}\n/help for help, mode: none`,
   tags: true,
   style: { fg: '#d4d4d4', bg: 'black' },
   hidden: true,
@@ -1030,7 +1030,7 @@ function updateStatusBar() {
   else if (editDirMode) activeMode = 'editdir';
   else if (askDirMode) activeMode = 'askdir';
   statusBar.setContent(
-    `{green-fg}11ku7-ai-nodecoder (version 1.0.7){/}\n` +
+    `{green-fg}11ku7-ai-nodecoder (version 1.0.8){/}\n` +
     `{gray-fg}cwd: ${currentWorkingDir}\n/help for help, mode: ${activeMode}\n` +
     `{#1E90FF-fg}Researched {/}{#1E90FF-fg}& {/}{#1E90FF-fg}developed {/}{#1E90FF-fg}in {/}{#FF9933-fg}In{/}{#FFFFFF-fg}di{/}{#138808-fg}a {/}`
   );
@@ -3061,8 +3061,7 @@ async function proposeEditDirPlan(query, dirPath, latestPlan = '') {
 
     if (!plan) {
       // Generate initial plan if no previous plan exists
-      const planPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested modifications to the directory "${dirPath}": "${query}". Propose a detailed, high-level plan to accomplish this task, focusing on the files to be modified and the changes needed (e.g., updating backend logic, adding frontend components, refactoring code). Use a conversational style, starting with phrases like "Let's update..." or "We'll modify..." to engage the user, and maintain a clear, approachable tone throughout (e.g., "Let's tweak the main.py file to add error handling, then update the frontend React components..."). Do not include shell commands or low-level implementation details. Present the plan as a single, concise paragraph in markdown format, avoiding numbered lists or bullet points. Ensure the plan aligns with the user's requirements.`;
-      
+      const planPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested modifications to the directory "${dirPath}": "${query}". Below is the content of files in the directory:\n\n${editDirContext}\n\nPropose a detailed, high-level plan to accomplish this task, specifying which files will be modified and the nature of changes (e.g., updating backend logic in script.js, adding UI elements to index.html). Use a conversational style, starting with phrases like "Let's update..." or "We'll modify..." to engage the user, and maintain a clear, approachable tone throughout (e.g., "Let's tweak index.html to add a scoreboard, then update script.js to track scores..."). Do not include shell commands or low-level implementation details. Present the plan as a single, concise paragraph in markdown format, avoiding numbered lists or bullet points. Ensure the plan aligns with the user's requirements and references specific files from the provided context.`;
       if (currentProvider === 'Gemini') {
         const result = await currentModel.generateContentStream(planPrompt);
         for await (const chunk of result.stream) {
@@ -3473,7 +3472,7 @@ async function proposeEditDirPlan(query, dirPath, latestPlan = '') {
       screen.render();
 
       // Generate a revised plan
-      const revisedPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested modifications to the directory "${dirPath}": "${query}". The current plan is: "${plan}". The user has provided the following modification: "${modification}". Revise the current plan to fully incorporate the user's modification, prioritizing the modification over any conflicting elements in the original request or current plan. Explicitly exclude any components contradicted by the modification (e.g., if the user says "use Flask instead of Django," replace all references to Django with Flask and adjust related dependencies). Use a conversational style, starting with phrases like "Let's update..." or "We'll tweak..." to engage the user, and maintain a clear, approachable tone throughout (e.g., "Let's swap in Flask for Django and set up the Python backend..."). Ensure the revised plan aligns with the original request where it does not conflict with the modification. Present the revised plan as a single, concise paragraph in markdown format, avoiding numbered lists or bullet points. Do not include shell commands or low-level implementation details. Ensure the revised plan is cohesive and directly reflects the user's modification.`;
+      const revisedPrompt = `You are a software project planner with a friendly, conversational tone. The user has requested modifications to the directory "${dirPath}": "${query}". The current plan is: "${plan}". The user has provided the following modification: "${modification}". Revise the current plan to fully incorporate the user's modification, prioritizing the modification over any conflicting elements in the original request or current plan. Explicitly exclude any components contradicted by the modification (e.g., if the user says "use Flask instead of Django," replace all references to Django with Flask and adjust related dependencies). Below is the content of files in the directory:\n\n${editDirContext}\n\nSpecify which files will be modified and the nature of changes (e.g., updating backend logic in script.js, adding UI elements to index.html). Use a conversational style, starting with phrases like "Let's update..." or "We'll tweak..." to engage the user, and maintain a clear, approachable tone throughout (e.g., "Let's swap in Flask for Django in main.py and update the requirements.txt..."). Ensure the revised plan aligns with the original request where it does not conflict with the modification. Present the plan as a single, concise paragraph in markdown format, avoiding numbered lists or bullet points. Do not include shell commands or low-level implementation details. Ensure the revised plan references specific files from the provided context.`;
       buffer = '';
       lastRenderedLength = 0;
 

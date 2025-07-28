@@ -1,13 +1,13 @@
 {
   "name": "11ku7-ai-nodecoder",
-  "version": "1.0.8",
-  "main": "index.js",
-  "bin": {
-    "nodecoder": "./index.js"
-  },
+  "version": "1.0.9",
+  "description": "A shell-based ai coding assistant using Gemini, Openai, Openai Compatible, Grok & Anthropic APIs",
+  "main": "run.sh",
   "scripts": {
-    "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "./run.sh"
+  },
+  "bin": {
+    "nodecoder": "./run.sh"
   },
   "keywords": [
     "ai",
@@ -25,18 +25,12 @@
   },
   "homepage": "https://github.com/dheeraj21/11ku7-ai-nodecoder#readme",
   "files": [
-    "index.js",
-    "LICENSE"
+    "11ku7-ai-nodecoder-linux-arm64",
+    "11ku7-ai-nodecoder-linux-x64",
+    "11ku7-ai-nodecoder-macos-x64",
+    "run.sh",
+    "License"
   ],
-  "dependencies": {
-    "@google/generative-ai": "^0.24.0",
-    "axios": "^1.8.4",
-    "clipboardy": "^3.0.0",
-    "dotenv": "^16.4.7",
-    "highlight.js": "^11.11.1",
-    "marked": "^15.0.8",
-    "marked-terminal": "^7.3.0",
-    "neo-blessed": "^0.2.0",
-    "openai": "^4.93.0"
-  }
+  "dependencies": {},
+  "devDependencies": {}
 }

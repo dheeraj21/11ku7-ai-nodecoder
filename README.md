@@ -1,10 +1,35 @@
 # 11ku7-ai-nodecoder
 
-A Shell-based AI coding assistant for generating code, web apps, creating, refactoring & querying codebases using Google Generative AI or OpenAI Compatible APIs.
+A Shell-based AI coding assistant for generating code, web apps, creating, editing & querying codebases using using Gemini, Openai, Openai Compatible, Grok & Anthropic APIs.
 
-**Version :  1.0.8**
+**Version :  1.0.9**
 
-**What's new : plan prompt and revised plan prompt are now according to files present in context in editdir mode.**
+**What's new :**
+
+- **This project from current version 1.0.9 is distributed with packaged binaries files supporting Linux-x64, Linux-arm64 and macos-x64**
+
+- **This project now requires community key to unlock, driven by contribution to support development.**
+
+- **added new providers Openai, Grok, Anthropic, also improved Openai-Compatible providers with support for openrouter by default.**
+
+- **added image understanding through vision models, images can be attached with local paths covering entire scope of program.**
+
+- **improved editdir mode on major areas including file parsing, error handling, local version control tags.**
+
+- **improved save conversation feature.**
+
+- **added token count functionality for every response supporting all providers, with input, output and total token count, summary of tokens in session in saved conversation at end.**
+
+- **improved env file handling for api keys, self env generation with placeholder, ask api key at start only mechanism implemented.**
+
+- **not including saved chat conversations files for editdir, askdir mode context.**
+
+- **Added Guide mode, which act as a brain of the program also performs action of transferring queries to specific modes.**
+
+- **Added theme options, improved ui elements.**
+
+- **Console output ui rendering issues solved through piping output to log file.**
+
 
 **Official Repository** : https://github.com/dheeraj21/11ku7-ai-nodecoder
 
@@ -12,9 +37,16 @@ A Shell-based AI coding assistant for generating code, web apps, creating, refac
 
 Node.js 18+
 
-**OS Supported:** Linux, Windows through WSL, Termux (Android)
+**OS Supported:** Linux, Windows through WSL, MacOS, Termux (Android)
+
+**Device Support:** state of the art performance on touch screen devices like Android mobile with Termux App (Linux-arm64) tested with ubuntu distro, raspberry pi support (Linux-arm64)
+
 
 ## Features
+
+#### Guide of program
+- **Guide Mode**: Acts as the program's intelligent brain.
+
 
 #### Coding & Web Apps
 - **Code Mode**: Generate and edit code snippets in various languages.
@@ -42,19 +74,17 @@ Node.js 18+
 ```bash
 npm install -g 11ku7-ai-nodecoder
 ```
-once installed set up api keys in a .env file in current directory with:
+OR
 
 ```bash
-GEMINI_API_KEY="your_gemini_api_key"
-OPENAI_API_KEY="your_openai_api_key"
+sudo npm install -g 11ku7-ai-nodecoder
 ```
+
 and finally run with command:
 
 ```bash
 nodecoder
 ```
-
-
 
 **OR**
 
@@ -68,27 +98,26 @@ git clone https://github.com/dheeraj21/11ku7-ai-nodecoder.git
 cd 11ku7-ai-nodecoder
 ```
 
-### Install dependencies:
+### Give Permissions
 ```bash
-npm install
+chmod +x run.sh
 ```
+and 
 
-### Set up api keys in a .env file:
 ```bash
-GEMINI_API_KEY="your_gemini_api_key"
-OPENAI_API_KEY="your_openai_api_key"
+chmod +x 11ku7-ai-nodecoder-linux-x64
+```
+```bash
+chmod +x 11ku7-ai-nodecoder-linux-arm64
+```
+```bash
+chmod +x 11ku7-ai-nodecoder-macos-x64
 ```
 
 ### Start the application:
 ```bash
-node index.js
+npm start
 ```
-
-### Getting Started
-
-- **Select a provider** : (Gemini or OpenAI Compatible) and then select model if gemini or enter base url and model name for OpenAI Compatible Provider.
-
-- **Use commands** : (e.g., /code, /shell) or queries to interact with the AI.
 
 
 ### Commands
@@ -102,6 +131,8 @@ node index.js
 - **/help**: Display commands and key bindings.
 
 - **/model**: Switch AI provider or model.
+
+- **/guide**: Acts as the program's intelligent brain
 
 - **/code**: Toggle code-only mode for generating code snippets.
 
@@ -166,11 +197,7 @@ node index.js
 - This project is licensed under the **MIT License**. See the `LICENSE` file for details.
 
 
-### References
 
-- **ReAct: Synergizing Reasoning And Acting in Language Models** [here](https://arxiv.org/pdf/2210.03629) 
-
-- **cyclotruc/gitingest** [here](https://github.com/cyclotruc/gitingest)
 
   
 

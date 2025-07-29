@@ -1,6 +1,6 @@
 # 11ku7-ai-nodecoder
 
-A Shell-based AI coding assistant for generating code, web apps, creating, editing & querying codebases using using Gemini, Openai, Openai Compatible, Grok & Anthropic APIs.
+A Shell-based AI coding assistant for generating code, web apps, creating, editing & querying codebases using Gemini, Openai, Openai Compatible, Grok & Anthropic APIs.
 
 **Version :  1.0.9**
 
@@ -18,11 +18,11 @@ A Shell-based AI coding assistant for generating code, web apps, creating, editi
 
 - **improved save conversation feature.**
 
-- **added token count functionality for every response supporting all providers, with input, output and total token count, summary of tokens in session in saved conversation at end.**
+- **added token count functionality for every response supporting all providers, with input, output and total token count, summary of tokens in session is saved conversation at end.**
 
 - **improved env file handling for api keys, self env generation with placeholder, ask api key at start only mechanism implemented.**
 
-- **not including saved chat conversations files for editdir, askdir mode context.**
+- **exclusion of saved chat conversations files for editdir, askdir mode context.**
 
 - **Added Guide mode, which act as a brain of the program also performs action of transferring queries to specific modes.**
 

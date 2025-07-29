@@ -86,6 +86,12 @@ and finally run with command:
 nodecoder
 ```
 
+OR
+
+```bash
+sudo nodecoder
+```
+
 **OR**
 
 ### Clone the repository
@@ -116,7 +122,7 @@ chmod +x 11ku7-ai-nodecoder-macos-x64
 
 ### Start the application:
 ```bash
-npm start
+nodecoder
 ```
 
 
